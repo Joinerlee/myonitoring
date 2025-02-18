@@ -1,156 +1,317 @@
-from core.task_scheduler import RTOSScheduler
-from core.task_executor import TaskExecutor
-from apscheduler.schedulers.background import BackgroundScheduler
+# app/main.py
+
+import asyncio
+import json
+import threading
 import time
 from datetime import datetime
+from pathlib import Path
+from queue import Queue
+from typing import Optional, Dict, Any
 
-class MainApplication:
+import cv2
+import numpy as np
+from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
+
+from hardware.camera import CameraIMX219
+from hardware.motor import MotorController
+from hardware.ultrasonic import UltrasonicSensor
+from hardware.weight_sensor import WeightSensor
+from utils.error_handler import ErrorHandler
+from utils.file_manager import FileManager
+
+class PetFeeder:
     def __init__(self):
-        self.scheduler = RTOSScheduler()
-        self.executor = TaskExecutor(self.scheduler)
-        self.background_scheduler = BackgroundScheduler()
+        # 시스템 설정 로드
+        self.config = self.load_config()
         
-        # 무게 관련 변수
-        self.last_saved_weight = None
-        self.last_stable_weight = None
-        self.change_start_time = None
-        self.change_start_weight = None  # 변화 시작시 무게 저장
-        self.weight_data = []
-        self.data_log_file = "weight_log.json"
-        self.tare_value = 0  # 현재 영점값
-        self.stable_count = 0  # 안정화 카운터
+        # 로거 설정
+        self.setup_logger()
+        
+        # 파일 관리자 초기화
+        self.file_manager = FileManager()
+        self.error_handler = ErrorHandler()
+        
+        # 하드웨어 초기화
+        self.init_hardware()
+        
+        # FastAPI 설정
+        self.app = FastAPI()
+        self.setup_api()
+        
+        # 시스템 상태 변수
+        self.system_running = True
+        self.camera_active = False
+        self.current_feeding = False
+        
+        # 데이터 캐시 및 큐
+        self.weight_cache = []
+        self.event_queue = Queue()
+        
+        # 락
+        self.camera_lock = threading.Lock()
+        self.weight_lock = threading.Lock()
+        self.feeding_lock = threading.Lock()
+        
+        # 마지막 작업 시간 기록
+        self.last_times = {
+            'weight': 0,
+            'ultrasonic': 0,
+            'schedule': 0,
+            'error': 0
+        }
+        
+        logger.info("PetFeeder initialized successfully")
 
-        # 초기 태스크 설정
-        self.scheduler.add_task("weight", priority=1)
-        self.scheduler.add_task("ultrasonic", priority=2)
-        self.scheduler.add_task("camera", priority=3)
-        self.scheduler.add_task("feeding", priority=4)
-    
-    def check_feeding_schedule(self):
+    def load_config(self) -> dict:
+        """설정 파일 로드"""
         try:
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            print(f"\n[{current_time}] Checking feeding schedule...")
-            self.scheduler.set_task_status("feeding", "ready")
+            with open('config/settings.json', 'r') as f:
+                return json.load(f)
         except Exception as e:
-            print(f"Error in feeding schedule check: {e}")
-    
-    def setup_background_tasks(self):
-        self.background_scheduler.add_job(
-            self.check_feeding_schedule,
-            'interval',
-            minutes=3,
-            id='feeding_check'
+            logger.error(f"Failed to load config: {e}")
+            return {}
+
+    def setup_logger(self):
+        """로거 설정"""
+        logger.add(
+            "logs/pet_feeder_{time}.log",
+            rotation="1 day",
+            retention="7 days",
+            level="INFO"
         )
-        self.background_scheduler.start()
-    
-    def cleanup(self):
-        self.background_scheduler.shutdown()
-        self.executor.cleanup()
-    
-    def save_weight_data(self):
-        """무게 데이터를 JSON 파일로 저장"""
-        import json
+
+    def init_hardware(self):
+        """하드웨어 컴포넌트 초기화"""
         try:
-            with open(self.data_log_file, 'w') as f:
-                json.dump(self.weight_data, f, indent=4)
-            print("무게 데이터 저장 성공")
-            return True
+            self.ultrasonic = UltrasonicSensor(
+                echo_pin=self.config['hardware']['ultrasonic']['echo_pin'],
+                trigger_pin=self.config['hardware']['ultrasonic']['trigger_pin']
+            )
+            self.weight_sensor = WeightSensor(
+                dout_pin=self.config['hardware']['weight_sensor']['dout_pin'],
+                sck_pin=self.config['hardware']['weight_sensor']['sck_pin']
+            )
+            self.motor = MotorController(
+                forward_pin=self.config['hardware']['motor']['forward_pin'],
+                backward_pin=self.config['hardware']['motor']['backward_pin']
+            )
+            self.camera = CameraIMX219()
+            
+            logger.info("Hardware initialized successfully")
         except Exception as e:
-            print(f"무게 데이터 저장 실패: {str(e)}")
-            return False
+            logger.error(f"Hardware initialization failed: {e}")
+            raise
 
-    def handle_weight_change(self, weight):
-        """무게 변화 감지 및 데이터 저장 로직"""
-        actual_weight = round(weight - self.tare_value, 1)  # 소수점 첫째자리까지만 표시
-        print(f"Current weight: {actual_weight}g")
+    def setup_api(self):
+        """API 설정"""
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=self.config['api']['allowed_origins'],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
         
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        if self.last_saved_weight is not None:
-            weight_change = abs(actual_weight - self.last_saved_weight)
+        @self.app.websocket("/ws/camera")
+        async def camera_websocket(websocket: WebSocket):
+            await self.handle_camera_websocket(websocket)
+            
+        @self.app.post("/api/schedule/update")
+        async def update_schedule(schedule: dict):
+            return await self.handle_schedule_update(schedule)
 
-            if weight_change >= 5:  # 5g 이상의 변화 감지
-                self.stable_count = 0  # 안정화 카운터 리셋
+    async def main_loop(self):
+        """메인 모니터링 루프"""
+        while self.system_running:
+            try:
+                current_time = time.time()
                 
-                if self.change_start_time is None:
-                    # 변화 시작 시점 기록
-                    self.change_start_time = current_time
-                    self.change_start_weight = self.last_saved_weight
-                    print(f"Weight change started at {current_time}")
-            else:  # 무게 변화가 5g 미만일 때
-                if self.change_start_time is not None:
-                    self.stable_count += 1
-                    
-                    # 3회 연속으로 안정적인 무게가 감지되면 변화 구간 종료로 간주
-                    if self.stable_count >= 3:
-                        # 변화 구간 데이터 저장
-                        total_change = abs(actual_weight - self.change_start_weight)
-                        self.weight_data.append({
-                            'start_time': self.change_start_time,
-                            'end_time': current_time,
-                            'start_weight': self.change_start_weight,
-                            'end_weight': actual_weight,
-                            'total_change': total_change
-                        })
-                        self.save_weight_data()
-                        print(f"Weight change ended at {current_time}")
-                        print(f"Total change: {total_change}g")
-                        
-                        # 변화 관련 변수 초기화
-                        self.change_start_time = None
-                        self.change_start_weight = None
-                        self.stable_count = 0
-            
-            self.last_saved_weight = actual_weight
-        else:
-            self.last_saved_weight = actual_weight
-        
-        return actual_weight
+                # 초음파 센서 모니터링 (100ms 간격)
+                if current_time - self.last_times['ultrasonic'] >= 0.1:
+                    await self.check_ultrasonic()
+                    self.last_times['ultrasonic'] = current_time
+                
+                # 무게 모니터링 (100ms 간격)
+                if current_time - self.last_times['weight'] >= 0.1:
+                    await self.monitor_weight()
+                    self.last_times['weight'] = current_time
+                
+                # 스케줄 확인 (1초 간격)
+                if current_time - self.last_times['schedule'] >= 1:
+                    await self.check_feeding_schedule()
+                    self.last_times['schedule'] = current_time
+                
+                # 에러 로그 처리 (5초 간격)
+                if current_time - self.last_times['error'] >= 5:
+                    await self.process_error_logs()
+                    self.last_times['error'] = current_time
+                
+                # 이벤트 큐 처리
+                while not self.event_queue.empty():
+                    event = self.event_queue.get()
+                    await self.process_event(event)
+                
+                await asyncio.sleep(0.01)  # CPU 부하 방지
+                
+            except Exception as e:
+                logger.error(f"Error in main loop: {e}")
+                await self.error_handler.log_error("main_loop", str(e))
+                await asyncio.sleep(1)
 
-    def run(self):
+    async def check_ultrasonic(self):
+        """초음파 센서 확인"""
         try:
-            print("Starting application...")
-            self.setup_background_tasks()
-            
-            while True:
-                try:
-                    next_task = self.scheduler.get_next_task()
-                    if next_task:
-                        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        print(f"\n[{current_time}] Executing task: {next_task}")
-                        result = self.executor.execute_task(next_task)
-                        
-                        if result and isinstance(result, dict):
-                            if result["status"] == "success":
-                                if next_task == "ultrasonic" and isinstance(result["data"], (int, float)):
-                                    if result["data"] <= 15:
-                                        print("Motion detected, triggering camera task")
-                                        self.scheduler.set_task_status("camera", "ready")
-                                elif next_task == "weight" and isinstance(result["data"], (int, float)):
-                                    weight_value = result["data"]
-                                    actual_weight = self.handle_weight_change(weight_value)
+            distance = self.ultrasonic.get_distance()
+            if distance is not None and distance <= 15:  # 15cm 이내 감지
+                if not self.camera_active:
+                    await self.start_camera_session()
+        except Exception as e:
+            logger.error(f"Ultrasonic sensor error: {e}")
+            await self.error_handler.log_error("ultrasonic", str(e))
 
-                                    if actual_weight < 100:
-                                        print("Low food weight detected, triggering feeding task")
-                                        self.scheduler.set_task_status("feeding", "ready")
-                                
-                                print(f"Task {next_task} completed successfully")
-                                self.scheduler.add_task(next_task)
-                            else:
-                                print(f"Task {next_task} failed: {result.get('message', 'Unknown error')}")
+    async def monitor_weight(self):
+        """무게 모니터링"""
+        try:
+            current_weight = self.weight_sensor.get_weight()
+            if current_weight is not None:
+                with self.weight_lock:
+                    self.weight_cache.append((time.time(), current_weight))
                     
-                    time.sleep(0.1)
+                    # 급격한 변화 감지
+                    if len(self.weight_cache) >= 2:
+                        await self.analyze_weight_change()
                     
-                except KeyboardInterrupt:
-                    print("\nShutting down...")
-                    self.cleanup()
-                    break
+                    # 사료 잔량 확인
+                    if current_weight < self.config['feeding']['min_weight']:
+                        self.event_queue.put({
+                            'type': 'low_food',
+                            'weight': current_weight
+                        })
+        except Exception as e:
+            logger.error(f"Weight monitoring error: {e}")
+            await self.error_handler.log_error("weight", str(e))
+
+    async def start_camera_session(self):
+        """카메라 세션 시작"""
+        with self.camera_lock:
+            if not self.camera_active:
+                self.camera_active = True
+                threading.Thread(target=self.camera_processing).start()
+
+    def camera_processing(self):
+        """카메라 이미지 캡처 및 처리"""
+        try:
+            start_time = time.time()
+            images = []
+            
+            while time.time() - start_time < self.config['camera']['session_duration']:
+                try:
+                    result = self.camera.capture()
+                    if result['status'] == 'success':
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        image_path = f"data/images/capture_{timestamp}.jpg"
+                        # 이미지 저장 및 분석 로직
+                        images.append(image_path)
+                    
+                    time.sleep(10)  # 10초 간격으로 캡처
+                    
                 except Exception as e:
-                    print(f"Error in main loop: {e}")
-                    time.sleep(1)
+                    logger.error(f"Camera capture error: {e}")
+                    
+            # 세션 종료 후 이미지 분석
+            self.analyze_captured_images(images)
+            
         finally:
-            self.cleanup()
+            self.camera_active = False
+
+    async def execute_feeding(self, amount: float):
+        """사료 급여 실행"""
+        with self.feeding_lock:
+            if self.current_feeding:
+                return
+            
+            self.current_feeding = True
+            try:
+                initial_weight = self.weight_sensor.get_weight()
+                if initial_weight is None:
+                    raise Exception("Weight sensor error")
+                
+                # 모터 제어로 사료 배출
+                self.motor.start_feeding()
+                
+                # 목표 무게 도달할 때까지 대기
+                while True:
+                    current_weight = self.weight_sensor.get_weight()
+                    if current_weight is None:
+                        raise Exception("Weight sensor error during feeding")
+                    
+                    if current_weight - initial_weight >= amount:
+                        break
+                    
+                    await asyncio.sleep(0.1)
+                
+                self.motor.stop_feeding()
+                
+                # 급여 결과 검증
+                final_weight = self.weight_sensor.get_weight()
+                if abs((final_weight - initial_weight) - amount) > self.config['feeding']['error_threshold']:
+                    await self.error_handler.log_error(
+                        "feeding",
+                        f"Feeding amount error - Expected: {amount}g, Actual: {final_weight - initial_weight}g"
+                    )
+                
+            except Exception as e:
+                logger.error(f"Feeding error: {e}")
+                await self.error_handler.log_error("feeding", str(e))
+                self.motor.stop_feeding()  # 안전을 위해 모터 정지
+                
+            finally:
+                self.current_feeding = False
+
+    async def run(self):
+        """시스템 실행"""
+        try:
+            logger.info("Starting PetFeeder system")
+            
+            # API 서버 시작 (별도 스레드)
+            api_thread = threading.Thread(
+                target=lambda: uvicorn.run(
+                    self.app,
+                    host=self.config['api']['host'],
+                    port=self.config['api']['port']
+                )
+            )
+            api_thread.start()
+            
+            # 메인 루프 실행
+            await self.main_loop()
+            
+        except KeyboardInterrupt:
+            logger.info("Shutting down PetFeeder system")
+            await self.cleanup()
+        except Exception as e:
+            logger.error(f"System error: {e}")
+            await self.cleanup()
+
+    async def cleanup(self):
+        """시스템 종료 및 정리"""
+        self.system_running = False
+        
+        # 하드웨어 정리
+        self.motor.cleanup()
+        self.ultrasonic.cleanup()
+        self.weight_sensor.cleanup()
+        
+        # 파일 정리
+        await self.file_manager.cleanup()
+        
+        logger.info("System cleanup completed")
 
 if __name__ == "__main__":
-    app = MainApplication()
-    app.run()
+    import uvicorn
+    
+    pet_feeder = PetFeeder()
+    asyncio.run(pet_feeder.run())

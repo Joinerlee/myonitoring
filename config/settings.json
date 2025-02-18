@@ -1,0 +1,34 @@
+{
+    "hardware": {
+      "ultrasonic": {
+        "trigger_pin": 23,
+        "echo_pin": 24,
+        "threshold_distance": 15
+      },
+      "motor": {
+        "forward_pin": 23,
+        "backward_pin": 22,
+        "default_speed": 0.7
+      },
+      "weight_sensor": {
+        "dout_pin": 14,
+        "sck_pin": 15,
+        "calibration_file": "weight_calibration.json"
+      }
+    },
+    "camera": {
+      "resolution": [1920, 1080],
+      "framerate": 30,
+      "session_duration": 180
+    },
+    "feeding": {
+      "min_weight": 100,
+      "max_weight": 1000,
+      "error_threshold": 5
+    },
+    "api": {
+      "host": "0.0.0.0",
+      "port": 8000,
+      "allowed_origins": ["http://trusted-frontend-domain.com"]
+    }
+  }
