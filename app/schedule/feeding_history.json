@@ -1,0 +1,25 @@
+{
+  "feedings": [
+    {
+      "date": "2025-02-18",
+      "scheduled_time": "14:41",
+      "actual_time": "14:40:06",
+      "amount": 150,
+      "weight_after": 315.5287537462311
+    },
+    {
+      "date": "2025-02-18",
+      "scheduled_time": "14:45",
+      "actual_time": "14:41:33",
+      "amount": 150,
+      "weight_after": 315.59365805223325
+    },
+    {
+      "date": "2025-02-18",
+      "scheduled_time": "15:00",
+      "actual_time": "15:00:04",
+      "amount": 150,
+      "weight_after": 0.8543618946981582
+    }
+  ]
+}

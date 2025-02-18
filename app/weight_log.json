@@ -1,0 +1,16 @@
+[
+    {
+        "start_time": "2025-02-18 14:56:23",
+        "end_time": "2025-02-18 14:56:51",
+        "start_weight": 0.8,
+        "end_weight": 101.4,
+        "total_change": 100.60000000000001
+    },
+    {
+        "start_time": "2025-02-18 14:58:28",
+        "end_time": "2025-02-18 14:59:05",
+        "start_weight": 101.4,
+        "end_weight": 0.8,
+        "total_change": 100.60000000000001
+    }
+]
