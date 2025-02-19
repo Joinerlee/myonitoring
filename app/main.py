@@ -209,11 +209,11 @@ def main():
                     print(f"이미지 저장: {image_path}")
                 
                 # 모터 작동
-                print("모터 작동...")
-                controller.control_motor(50, 'forward')
-                time.sleep(2)
-                controller.control_motor(0)
-                print("모터 정지")
+                # print("모터 작동...")
+                # controller.control_motor(50, 'forward')
+                # time.sleep(2)
+                # controller.control_motor(0)
+                # print("모터 정지")
             
             time.sleep(1)
             
