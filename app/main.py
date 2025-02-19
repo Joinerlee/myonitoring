@@ -24,6 +24,7 @@ try:
 except ImportError:
     print("[system] pigpio를 찾을 수 없습니다. 에뮬레이션 모드로 실행합니다.")
     os.environ['GPIOZERO_PIN_FACTORY'] = 'mock'
+os.environ['PIGPIO_ADDR'] = 'soft'  # pigpio 에뮬레이션 모드
 
 # gpiozero 임포트 (GPIO 설정 후에 임포트)
 from gpiozero import Device
@@ -80,8 +81,21 @@ def log_error(msg: str):
 class PetFeeder:
     def __init__(self):
         # 필요한 디렉토리 생성
-        for path in ['config', 'data/images', 'logs']:
+        for path in ['config', 'data/images', 'logs', 'app/schedule']:
             Path(path).mkdir(parents=True, exist_ok=True)
+        
+        # 기본 스케줄 파일 생성
+        schedule_path = Path('app/schedule/feeding_schedule.json')
+        if not schedule_path.exists():
+            default_schedule = {
+                "feedings": [
+                    {"time": "08:00", "amount": 100},
+                    {"time": "12:00", "amount": 100},
+                    {"time": "18:00", "amount": 100}
+                ]
+            }
+            with open(schedule_path, 'w') as f:
+                json.dump(default_schedule, f, indent=4)
         
         # 시스템 설정 로드
         self.config = self.load_config()
@@ -241,38 +255,37 @@ class PetFeeder:
                 # 상태 출력
                 loop_count += 1
                 if loop_count % status_interval == 0:
-                    log_info(f"\n=== 시스템 상태 (루프 {loop_count}) ===")
+                    print(f"\n=== 시스템 상태 (루프 {loop_count}) ===")
                     if self.weight_cache:
                         latest_weight = self.weight_cache[-1][1]
-                        log_info(f"현재 무게: {latest_weight:.1f}g")
-                    log_info(f"카메라 상태: {'활성화' if self.camera_active else '비활성화'}")
-                    log_info(f"급여 상태: {'급여중' if self.current_feeding else '대기중'}\n")
+                        print(f"현재 무게: {latest_weight:.1f}g")
+                    print(f"카메라 상태: {'활성화' if self.camera_active else '비활성화'}")
+                    print(f"급여 상태: {'급여중' if self.current_feeding else '대기중'}\n")
                 
                 # 작업 실행
                 task = scheduler.get_next_task(current_time)
                 if task:
-                    if task == 'ultrasonic':
-                        distance = await self.check_ultrasonic()
-                        if distance is not None and distance < 50:
-                            log_info(f"거리: {distance:.1f}cm")
-                    elif task == 'weight':
-                        weight = await self.monitor_weight()
-                        if weight is not None:
-                            log_info(f"무게: {weight:.1f}g")
-                    elif task == 'schedule':
-                        await self.check_feeding_schedule()
-                    elif task == 'error':
-                        await self.process_error_logs()
-                    elif task == 'camera' and self.camera_active:
-                        await self.process_camera_frame()
-                    
-                    scheduler.update_task_time(task, current_time)
+                    try:
+                        if task == 'ultrasonic':
+                            await self.check_ultrasonic()
+                        elif task == 'weight':
+                            await self.monitor_weight()
+                        elif task == 'schedule':
+                            await self.check_feeding_schedule()
+                        elif task == 'error':
+                            await self.process_error_logs()
+                        elif task == 'camera' and self.camera_active:
+                            await self.process_camera_frame()
+                        
+                        scheduler.update_task_time(task, current_time)
+                    except Exception as e:
+                        # 개별 작업 오류는 조용히 처리
+                        pass
                 
-                # CPU 부하 방지
                 await asyncio.sleep(0.01)
                 
             except Exception as e:
-                log_error(f"\n[오류] {str(e)}")
+                print(f"\n[오류] {str(e)}")
                 await asyncio.sleep(1)
 
     async def check_ultrasonic(self):
@@ -493,6 +506,14 @@ class PetFeeder:
         except Exception as e:
             log_error(f"[system] 스케줄 확인 실패: {str(e)}")
             await self.error_handler.log_error("schedule", str(e))
+
+    async def process_error_logs(self):
+        """에러 로그 처리"""
+        try:
+            # 에러 로그 처리 로직
+            pass
+        except Exception as e:
+            print(f"[오류] 에러 로그 처리 실패: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
