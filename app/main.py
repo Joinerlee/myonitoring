@@ -8,6 +8,9 @@ from datetime import datetime
 from pathlib import Path
 from queue import Queue
 from typing import Optional, Dict, Any
+import os
+import sys
+import locale
 
 import cv2
 import numpy as np
@@ -23,8 +26,18 @@ from utils.error_handler import ErrorHandler
 from utils.file_manager import FileManager
 from core.task_scheduler import RTOSScheduler
 
+os.environ['GPIOZERO_PIN_FACTORY'] = 'mock'  # GPIO 에뮬레이션 모드
+
+# 한글 출력을 위한 설정
+sys.stdout.reconfigure(encoding='utf-8')
+locale.setlocale(locale.LC_ALL, '')
+
 class PetFeeder:
     def __init__(self):
+        # 필요한 디렉토리 생성
+        for path in ['config', 'data/images', 'logs']:
+            Path(path).mkdir(parents=True, exist_ok=True)
+        
         # 시스템 설정 로드
         self.config = self.load_config()
         
@@ -385,6 +398,25 @@ class PetFeeder:
                 
         except Exception as e:
             logger.error(f"Camera frame processing error: {e}")
+
+    async def check_feeding_schedule(self):
+        """급여 스케줄 확인"""
+        try:
+            print("[system] 급여 스케줄 확인 중...")
+            current_time = datetime.now().strftime("%H:%M")
+            
+            with open('app/schedule/feeding_schedule.json', 'r') as f:
+                schedule = json.load(f)
+                
+            for feeding in schedule['feedings']:
+                if feeding['time'] == current_time:
+                    if not self.current_feeding:
+                        print(f"[system] 급여 시간입니다: {current_time}")
+                        await self.execute_feeding(feeding['amount'])
+                        
+        except Exception as e:
+            print(f"[system] 스케줄 확인 실패: {str(e)}")
+            await self.error_handler.log_error("schedule", str(e))
 
 if __name__ == "__main__":
     import uvicorn
