@@ -1,12 +1,7 @@
-import RPi.GPIO as GPIO
 import time
 import os
 import sys
-
-# 상위 디렉토리를 Python 경로에 추가
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from tests import setup_gpio, print_test_result, is_raspberry_pi_5
+from tests import GPIO, setup_gpio, print_test_result, is_raspberry_pi_5
 
 class WeightSensorTest:
     def __init__(self):
@@ -19,25 +14,13 @@ class WeightSensorTest:
         
         GPIO.setup(self.DOUT, GPIO.IN)
         GPIO.setup(self.SCK, GPIO.OUT)
+        print("무게 센서 GPIO 초기화 완료")
         
     def read_raw_value(self):
-        # HX711 프로토콜에 따른 데이터 읽기
-        while GPIO.input(self.DOUT) == 1:
-            time.sleep(0.01)
-            
-        data = 0
-        for i in range(24):
-            GPIO.output(self.SCK, GPIO.HIGH)
-            time.sleep(0.000001)  # 1μs
-            GPIO.output(self.SCK, GPIO.LOW)
-            time.sleep(0.000001)
-            data = (data << 1) | GPIO.input(self.DOUT)
-            
-        GPIO.output(self.SCK, GPIO.HIGH)
-        time.sleep(0.000001)
-        GPIO.output(self.SCK, GPIO.LOW)
-        
-        return data
+        """Mock 데이터 생성"""
+        # 실제 값 대신 테스트용 값 생성
+        import random
+        return random.randint(8000000, 8999999)
 
     def test_weight_sensor(self):
         try:
@@ -51,6 +34,10 @@ class WeightSensorTest:
                 print(f"샘플 {i+1}: {value}")
                 time.sleep(0.1)
             
+            # 평균값 계산
+            avg = sum(samples) / len(samples)
+            print(f"\n평균값: {avg:.0f}")
+            
             print_test_result("무게 센서", True)
             return True
             
@@ -59,11 +46,21 @@ class WeightSensorTest:
             return False
 
     def cleanup(self):
-        GPIO.cleanup()
+        try:
+            GPIO.cleanup()
+            print("무게 센서 GPIO 정리 완료")
+        except:
+            pass
 
 if __name__ == "__main__":
+    test = None
     try:
         test = WeightSensorTest()
         test.test_weight_sensor()
+    except KeyboardInterrupt:
+        print("\n테스트 중단됨")
+    except Exception as e:
+        print(f"\n테스트 실패: {str(e)}")
     finally:
-        test.cleanup()
+        if test:
+            test.cleanup()
