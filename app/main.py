@@ -74,7 +74,9 @@ class PetFeeder:
             'weight': 0,
             'ultrasonic': 0,
             'schedule': 0,
-            'error': 0
+            'error': 0,
+            'distance_print': 0,
+            'weight_print': 0
         }
         
         logger.info("PetFeeder initialized successfully")
@@ -194,6 +196,14 @@ class PetFeeder:
         loop_count = 0
         status_interval = 50  # 50회마다 상태 출력
         
+        # 마지막 출력 시간 초기화
+        self.last_times.update({
+            'distance_print': 0,
+            'weight_print': 0
+        })
+        
+        print("[system] 모니터링 시작...")
+        
         while self.system_running:
             try:
                 current_time = time.time()
@@ -213,11 +223,6 @@ class PetFeeder:
                     
                     scheduler.update_task_time(task, current_time)
                 
-                # 이벤트 큐 처리
-                while not self.event_queue.empty():
-                    event = self.event_queue.get()
-                    await self.process_event(event)
-                
                 # 주기적으로 시스템 상태 출력
                 loop_count += 1
                 if loop_count % status_interval == 0:
@@ -227,13 +232,12 @@ class PetFeeder:
                     if self.weight_cache:
                         latest_weight = self.weight_cache[-1][1]
                         print(f"  - 현재 무게: {latest_weight:.1f}g")
-                    print("  - 시스템 정상 작동 중...")
+                    print("  - 시스템 정상 작동 중...\n")
                 
-                await asyncio.sleep(0.01)  # CPU 부하 방지
+                await asyncio.sleep(0.01)
                 
             except Exception as e:
-                logger.error(f"Error in main loop: {e}")
-                await self.error_handler.log_error("main_loop", str(e))
+                print(f"[system] 오류 발생: {str(e)}")
                 await asyncio.sleep(1)
 
     async def check_ultrasonic(self):
@@ -247,33 +251,35 @@ class PetFeeder:
                         print("[system] 카메라 세션 시작...")
                         await self.start_camera_session()
                 else:
-                    if distance < 50:  # 50cm 이내일 때만 거리 출력
-                        print(f"[ultrasonic] 거리: {distance:.1f}cm")
+                    # 매번 출력하지 말고 1초에 한 번만 출력
+                    current_time = time.time()
+                    if current_time - self.last_times.get('distance_print', 0) >= 1:
+                        if distance < 50:  # 50cm 이내일 때만 거리 출력
+                            print(f"[ultrasonic] 현재 거리: {distance:.1f}cm")
+                        self.last_times['distance_print'] = current_time
         except Exception as e:
-            logger.error(f"Ultrasonic sensor error: {e}")
-            await self.error_handler.log_error("ultrasonic", str(e))
+            print(f"[ultrasonic] 오류 발생: {str(e)}")
 
     async def monitor_weight(self):
         """무게 모니터링"""
         try:
             current_weight = self.weight_sensor.get_weight()
             if current_weight is not None:
+                current_time = time.time()
+                # 1초에 한 번만 무게 출력
+                if current_time - self.last_times.get('weight_print', 0) >= 1:
+                    print(f"[weight] 현재 무게: {current_weight:.1f}g")
+                    self.last_times['weight_print'] = current_time
+                
                 with self.weight_lock:
-                    self.weight_cache.append((time.time(), current_weight))
-                    
-                    # 급격한 변화 감지
-                    if len(self.weight_cache) >= 2:
-                        await self.analyze_weight_change()
+                    self.weight_cache.append((current_time, current_weight))
                     
                     # 사료 잔량 확인
                     if current_weight < self.config['feeding']['min_weight']:
-                        self.event_queue.put({
-                            'type': 'low_food',
-                            'weight': current_weight
-                        })
+                        print(f"[system] 경고: 사료 잔량 부족 ({current_weight:.1f}g)")
+                        
         except Exception as e:
-            logger.error(f"Weight monitoring error: {e}")
-            await self.error_handler.log_error("weight", str(e))
+            print(f"[weight] 오류 발생: {str(e)}")
 
     async def start_camera_session(self):
         """카메라 세션 시작"""
