@@ -383,34 +383,34 @@ class PetFeeder:
                 if initial_weight is None:
                     raise Exception("Weight sensor error")
                 
-                # 모터 제어로 사료 배출
-                self.motor.start_feeding()
+                target_weight = initial_weight + amount
+                print(f"[system] 급여 시작 (현재: {initial_weight:.1f}g, 목표: {target_weight:.1f}g)")
                 
-                # 목표 무게 도달할 때까지 대기
+                # 모터 제어로 사료 배출
+                if not self.motor.start_feeding(target_weight):
+                    raise Exception("Motor start failed")
+                
+                # PID 제어 루프
                 while True:
                     current_weight = self.weight_sensor.get_weight()
                     if current_weight is None:
                         raise Exception("Weight sensor error during feeding")
                     
-                    if current_weight - initial_weight >= amount:
+                    # 모터 속도 조절
+                    self.motor.adjust_speed(current_weight, target_weight)
+                    
+                    # 목표 도달 확인
+                    if current_weight >= target_weight:
                         break
                     
                     await asyncio.sleep(0.1)
                 
                 self.motor.stop_feeding()
-                
-                # 급여 결과 검증
-                final_weight = self.weight_sensor.get_weight()
-                if abs((final_weight - initial_weight) - amount) > self.config['feeding']['error_threshold']:
-                    await self.error_handler.log_error(
-                        "feeding",
-                        f"Feeding amount error - Expected: {amount}g, Actual: {final_weight - initial_weight}g"
-                    )
+                print(f"[system] 급여 완료 (최종 무게: {current_weight:.1f}g)")
                 
             except Exception as e:
-                log_error(f"Feeding error: {e}")
-                await self.error_handler.log_error("feeding", str(e))
-                self.motor.stop_feeding()  # 안전을 위해 모터 정지
+                print(f"[system] 급여 오류: {str(e)}")
+                self.motor.stop_feeding()
                 
             finally:
                 self.current_feeding = False
