@@ -63,13 +63,18 @@ for handler in logging.root.handlers[:]:
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
 logging.getLogger("fastapi").setLevel(logging.WARNING)
 
+# 로그 디렉토리 생성
+log_dir = Path('logs')
+log_dir.mkdir(exist_ok=True)
+
 # 기본 로거 설정
 logger = logging.getLogger('pet_feeder')
 logger.setLevel(logging.INFO)
 logger.handlers = []  # 기존 핸들러 제거
 
 # 파일 핸들러 설정
-file_handler = logging.FileHandler('logs/pet_feeder.log', encoding='utf-8')
+log_file = log_dir / 'pet_feeder.log'
+file_handler = logging.FileHandler(log_file, encoding='utf-8')
 file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', 
                                  datefmt='%Y-%m-%d %H:%M:%S')
 file_handler.setFormatter(file_formatter)

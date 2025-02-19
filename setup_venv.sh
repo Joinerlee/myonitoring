@@ -47,6 +47,12 @@ for package in "RPi" "rpi_gpio.py" "pigpio.py"; do
     fi
 done
 
+# 프로젝트 디렉토리 구조 생성
+echo "프로젝트 디렉토리 구조 생성 중..."
+mkdir -p app/logs
+mkdir -p app/data/images
+mkdir -p tests
+
 # 필요한 파이썬 패키지 설치
 echo "Python 패키지 설치 중..."
 pip install --upgrade pip
