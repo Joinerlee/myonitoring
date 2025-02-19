@@ -1,8 +1,13 @@
 import RPi.GPIO as GPIO
 import time
+import os
 
 class MotorTest:
     def __init__(self):
+        # root 권한 체크
+        if os.geteuid() != 0:
+            raise PermissionError("GPIO 접근을 위해 root 권한이 필요합니다. 'sudo python3 test_motor.py'로 실행하세요.")
+            
         # GPIO 설정
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
