@@ -20,13 +20,13 @@ warnings.filterwarnings('ignore', category=RuntimeWarning)
 # GPIO 설정
 import os
 from gpiozero import Device
-from gpiozero.pins.native import NativeFactory
+from gpiozero.pins.mock import MockFactory
 
-# GPIO 네이티브 핀 팩토리 설정
-os.environ['GPIOZERO_PIN_FACTORY'] = 'native'
-Device.pin_factory = NativeFactory()
+# GPIO 모의(Mock) 핀 팩토리 설정
+os.environ['GPIOZERO_PIN_FACTORY'] = 'mock'
+Device.pin_factory = MockFactory()
 
-# 기존 GPIO 설정 초기화 (이미 핀 팩토리가 설정된 후에 실행)
+# 기존 GPIO 설정 초기화
 try:
     Device.pin_factory.reset()
 except:
