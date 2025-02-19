@@ -172,35 +172,48 @@ class HardwareTest:
         """메인 테스트 루프"""
         image_count = 0
         last_motor_time = 0
+        last_print_time = 0
         
         try:
             print("\n=== 센서 테스트 시작 ===")
             while self.system_running:
                 current_time = time.time()
                 
-                # 초음파 센서 읽기
-                distance = self.ultrasonic.get_distance()
-                pulse_duration = self.ultrasonic.get_pulse_duration()
-                if distance is not None:
-                    print(f"[초음파] RAW: {pulse_duration:.6f}s, 거리: {distance:.1f}cm", flush=True)
-                
-                # 무게 센서 읽기
-                raw_value = self.weight_sensor.read()
-                weight = self.weight_sensor.get_weight()
-                if weight is not None:
-                    print(f"[무게] RAW: {raw_value}, 보정값: {weight:.1f}g", flush=True)
+                # 0.5초 간격으로 센서값 출력
+                if current_time - last_print_time >= 0.5:  # 500ms 간격
+                    print("\n현재 센서 상태:")
+                    
+                    # 초음파 센서 읽기
+                    distance = self.ultrasonic.get_distance()
+                    pulse_duration = self.ultrasonic.get_pulse_duration()
+                    if distance is not None:
+                        print(f"[초음파] 거리: {distance:.1f}cm (RAW: {pulse_duration:.6f}s)")
+                    
+                    # 무게 센서 읽기
+                    raw_value = self.weight_sensor.read()
+                    weight = self.weight_sensor.get_weight()
+                    if weight is not None:
+                        print(f"[무게] 측정값: {weight:.1f}g (RAW: {raw_value})")
+                    
+                    print("-" * 40)  # 구분선
+                    sys.stdout.flush()
+                    last_print_time = current_time
                 
                 # 물체 감지시 카메라 촬영 (5장만)
-                if distance is not None and distance < 15 and image_count < 5:
+                if (distance is not None and 
+                    distance < 15 and 
+                    image_count < 5 and 
+                    current_time - last_print_time >= 1):  # 최소 1초 간격
                     self.capture_images()
-                    image_count = 5  # 5장 찍고 더이상 안찍음
+                    image_count = 5
                 
-                # 무게 변화에 따른 모터 제어 (3초 간격)
-                if weight is not None and current_time - last_motor_time > 3:
+                # 무게 변화에 따른 모터 제어 (5초 간격)
+                if (weight is not None and 
+                    current_time - last_motor_time > 5):  # 5초로 늘림
                     self.run_motor(weight)
                     last_motor_time = current_time
                 
-                time.sleep(0.1)  # 100ms 간격으로 센서 읽기
+                time.sleep(0.1)  # 기본 루프 간격
                 
         except KeyboardInterrupt:
             print("\n테스트를 종료합니다...")
