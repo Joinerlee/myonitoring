@@ -1,63 +1,89 @@
 import RPi.GPIO as GPIO
 import time
-import os
-import sys
-
-# 상위 디렉토리를 Python 경로에 추가
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from tests import setup_gpio, print_test_result, is_raspberry_pi_5
 
 class MotorTest:
     def __init__(self):
-        if not is_raspberry_pi_5():
-            raise Exception("이 테스트는 라즈베리파이 5에서만 실행 가능합니다.")
-            
-        setup_gpio()
+        # GPIO 설정
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+        
+        # 핀 번호 설정
         self.MOTOR_FORWARD = 17
         self.MOTOR_BACKWARD = 18
         self.MOTOR_SPEED = 12
         
-        # PWM 설정 (라즈베리파이 5는 하드웨어 PWM 지원)
+        # GPIO 초기화
         GPIO.setup(self.MOTOR_FORWARD, GPIO.OUT)
         GPIO.setup(self.MOTOR_BACKWARD, GPIO.OUT)
         GPIO.setup(self.MOTOR_SPEED, GPIO.OUT)
+        
+        # PWM 설정 (라즈베리파이 5의 하드웨어 PWM 사용)
         self.pwm = GPIO.PWM(self.MOTOR_SPEED, 1000)  # 1kHz
         self.pwm.start(0)
+        print("모터 GPIO 초기화 완료")
 
     def test_motor_control(self):
         try:
-            print("\n모터 제어 테스트 시작...")
+            print("\n=== 모터 제어 테스트 시작 ===")
             
-            # 정방향 테스트
-            print("1. 정방향 회전 테스트")
+            # 1. 정방향 저속 회전
+            print("\n1. 정방향 저속 (30%)")
             GPIO.output(self.MOTOR_FORWARD, GPIO.HIGH)
             GPIO.output(self.MOTOR_BACKWARD, GPIO.LOW)
+            self.pwm.ChangeDutyCycle(30)
+            time.sleep(3)
             
-            # 속도 변화 테스트
-            for speed in [20, 40, 60, 80, 100]:
-                print(f"속도: {speed}%")
-                self.pwm.ChangeDutyCycle(speed)
-                time.sleep(1)
+            # 2. 정방향 중속 회전
+            print("\n2. 정방향 중속 (60%)")
+            self.pwm.ChangeDutyCycle(60)
+            time.sleep(3)
             
-            # 정지
+            # 3. 정방향 고속 회전
+            print("\n3. 정방향 고속 (90%)")
+            self.pwm.ChangeDutyCycle(90)
+            time.sleep(3)
+            
+            # 4. 정지
+            print("\n4. 모터 정지")
             self.pwm.ChangeDutyCycle(0)
             GPIO.output(self.MOTOR_FORWARD, GPIO.LOW)
+            time.sleep(1)
             
-            print_test_result("모터 제어", True)
+            # 5. 역방향 테스트
+            print("\n5. 역방향 테스트 (50%)")
+            GPIO.output(self.MOTOR_FORWARD, GPIO.LOW)
+            GPIO.output(self.MOTOR_BACKWARD, GPIO.HIGH)
+            self.pwm.ChangeDutyCycle(50)
+            time.sleep(3)
+            
+            # 최종 정지
+            self.pwm.ChangeDutyCycle(0)
+            GPIO.output(self.MOTOR_BACKWARD, GPIO.LOW)
+            print("\n테스트 완료!")
             return True
             
         except Exception as e:
-            print_test_result("모터 제어", False, str(e))
+            print(f"\n테스트 실패: {str(e)}")
             return False
         
     def cleanup(self):
-        self.pwm.stop()
-        GPIO.cleanup()
+        try:
+            self.pwm.stop()
+            GPIO.cleanup()
+            print("GPIO 정리 완료")
+        except:
+            pass
 
-if __name__ == "__main__":
+def main():
+    test = None
     try:
         test = MotorTest()
         test.test_motor_control()
+    except KeyboardInterrupt:
+        print("\n테스트 중단됨")
     finally:
-        test.cleanup() 
+        if test:
+            test.cleanup()
+
+if __name__ == "__main__":
+    main() 
