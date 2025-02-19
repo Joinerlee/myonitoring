@@ -143,6 +143,11 @@ class PetFeeder:
             'weight_print': 0
         }
         
+        # 센서 모니터링 스레드 시작
+        self.monitor_thread = threading.Thread(target=self._monitor_sensors)
+        self.monitor_thread.daemon = True
+        self.monitor_thread.start()
+        
         log_info("PetFeeder initialized successfully")
 
     def load_config(self) -> dict:
@@ -559,45 +564,72 @@ class PetFeeder:
         except Exception as e:
             print(f"[오류] 에러 로그 처리 실패: {str(e)}")
 
+    def _monitor_sensors(self):
+        """센서 모니터링 스레드"""
+        while self.system_running:
+            try:
+                # 초음파 센서 읽기
+                distance = self.ultrasonic.get_distance()
+                pulse_duration = self.ultrasonic.get_pulse_duration()
+                if distance is not None:
+                    print(f"[초음파] RAW: {pulse_duration:.6f}s, 거리: {distance:.1f}cm", flush=True)
+                    if distance <= 15:
+                        print(f"[초음파] 물체 감지! (거리: {distance:.1f}cm)", flush=True)
+                
+                # 무게 센서 읽기
+                raw_value = self.weight_sensor.read()
+                weight = self.weight_sensor.get_weight()
+                if weight is not None:
+                    print(f"[무게센서] RAW: {raw_value}, 보정값: {weight:.1f}g", flush=True)
+                
+                # 100ms 대기
+                time.sleep(0.1)
+                
+            except Exception as e:
+                print(f"[오류] 센서 모니터링: {str(e)}", flush=True)
+                time.sleep(1)
+
 if __name__ == "__main__":
     import uvicorn
     import signal
+    import sys
     
-    pet_feeder = PetFeeder()
+    pet_feeder = None
     
-    # 시그널 핸들러 설정
+    def cleanup_and_exit():
+        if pet_feeder:
+            print("\n시스템을 종료합니다...")
+            # 하드웨어 정리
+            pet_feeder.motor.cleanup()
+            pet_feeder.ultrasonic.cleanup()
+            pet_feeder.weight_sensor.cleanup()
+            print("하드웨어 정리 완료")
+        sys.exit(0)
+    
+    # 시그널 핸들러
     def signal_handler(signum, frame):
-        print("\n시스템을 종료합니다...")
-        pet_feeder.system_running = False
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+        cleanup_and_exit()
     
     try:
-        # API 서버 시작 (별도 스레드)
-        api_thread = threading.Thread(
-            target=lambda: uvicorn.run(
-                pet_feeder.app,
-                host=pet_feeder.config['api']['host'],
-                port=pet_feeder.config['api']['port'],
-                log_level="error"
-            )
-        )
-        api_thread.daemon = True
-        api_thread.start()
+        # CTRL+C 핸들러 등록
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
         
-        # 메인 이벤트 루프 실행
-        loop = asyncio.get_event_loop()
-        try:
-            loop.run_until_complete(pet_feeder.main_loop())
-        except KeyboardInterrupt:
-            pass
-        finally:
-            loop.run_until_complete(pet_feeder.cleanup())
-            loop.close()
-            
+        # PetFeeder 초기화
+        pet_feeder = PetFeeder()
+        
+        # FastAPI 서버 설정
+        config = {
+            'app': pet_feeder.app,
+            'host': "0.0.0.0",
+            'port': 8000,
+            'log_level': "error"
+        }
+        
+        # 서버 시작 (메인 스레드에서)
+        print("\n스마트 펫피더 시스템을 시작합니다...\n")
+        uvicorn.run(**config)
+        
     except Exception as e:
-        print(f"시스템 오류: {e}")
-    finally:
-        # 종료 처리
-        pet_feeder.system_running = False
+        print(f"\n시스템 오류: {str(e)}")
+        cleanup_and_exit()
