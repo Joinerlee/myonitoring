@@ -14,6 +14,14 @@ import locale
 import io
 import warnings
 
+# 한글 출력을 위한 설정
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
+# 버퍼링 없이 즉시 출력하도록 설정
+print = lambda x: sys.stdout.write(str(x) + '\n')
+sys.stdout.flush()
+
 # GPIO 경고 메시지 무시
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
@@ -296,14 +304,20 @@ class PetFeeder:
         try:
             distance = self.ultrasonic.get_distance()
             if distance is not None:
+                print(f"[초음파] 거리: {distance:.1f}cm")
+                sys.stdout.flush()  # 즉시 출력
+                
                 if distance <= 15:  # 15cm 이내 감지
                     print(f"\n[초음파] 물체 감지! (거리: {distance:.1f}cm)")
+                    sys.stdout.flush()  # 즉시 출력
                     if not self.camera_active:
                         print("[카메라] 세션 시작...")
+                        sys.stdout.flush()  # 즉시 출력
                         await self.start_camera_session()
             return distance
         except Exception as e:
             print(f"[오류] 초음파 센서: {str(e)}")
+            sys.stdout.flush()  # 즉시 출력
             return None
 
     async def monitor_weight(self):
@@ -313,13 +327,17 @@ class PetFeeder:
             if current_weight is not None:
                 with self.weight_lock:
                     self.weight_cache.append((time.time(), current_weight))
+                    print(f"[무게] 현재: {current_weight:.1f}g")
+                    sys.stdout.flush()  # 즉시 출력
                     
                     # 사료 잔량 확인
                     if current_weight < self.config['feeding']['min_weight']:
                         print(f"[경고] 사료 잔량 부족 ({current_weight:.1f}g)")
+                        sys.stdout.flush()  # 즉시 출력
                 return current_weight
         except Exception as e:
             print(f"[오류] 무게 센서: {str(e)}")
+            sys.stdout.flush()  # 즉시 출력
             return None
 
     async def start_camera_session(self):
