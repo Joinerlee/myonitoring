@@ -593,43 +593,67 @@ if __name__ == "__main__":
     import uvicorn
     import signal
     import sys
+    from gpiozero import Motor, PWMOutputDevice
+    from time import sleep
     
-    pet_feeder = None
-    
-    def cleanup_and_exit():
-        if pet_feeder:
-            print("\n시스템을 종료합니다...")
-            # 하드웨어 정리
-            pet_feeder.motor.cleanup()
-            pet_feeder.ultrasonic.cleanup()
-            pet_feeder.weight_sensor.cleanup()
-            print("하드웨어 정리 완료")
-        sys.exit(0)
-    
-    # 시그널 핸들러
-    def signal_handler(signum, frame):
-        cleanup_and_exit()
+    print("\n=== GPIO 테스트 시작 ===")
     
     try:
-        # CTRL+C 핸들러 등록
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
+        # GPIO 설정
+        motor = Motor(forward=17, backward=18)
+        speed = PWMOutputDevice(12)
+        print("모터 GPIO 초기화 완료")
         
-        # PetFeeder 초기화
-        pet_feeder = PetFeeder()
+        # 초음파 센서 테스트
+        from hardware.ultrasonic import UltrasonicSensor
+        ultrasonic = UltrasonicSensor(echo_pin=24, trigger_pin=23)
+        print("초음파 센서 GPIO 초기화 완료")
         
-        # FastAPI 서버 설정
-        config = {
-            'app': pet_feeder.app,
-            'host': "0.0.0.0",
-            'port': 8000,
-            'log_level': "error"
-        }
+        # 무게 센서 테스트
+        from hardware.weight_sensor import WeightSensor
+        weight_sensor = WeightSensor(dout_pin=14, sck_pin=15)
+        print("무게 센서 GPIO 초기화 완료")
         
-        # 서버 시작 (메인 스레드에서)
-        print("\n스마트 펫피더 시스템을 시작합니다...\n")
-        uvicorn.run(**config)
+        print("\n=== 센서 테스트 시작 ===")
         
+        try:
+            while True:
+                # 초음파 센서 읽기
+                distance = ultrasonic.get_distance()
+                pulse_duration = ultrasonic.get_pulse_duration()
+                if distance is not None:
+                    print(f"[초음파] RAW: {pulse_duration:.6f}s, 거리: {distance:.1f}cm", flush=True)
+                
+                # 무게 센서 읽기
+                raw_value = weight_sensor.read()
+                weight = weight_sensor.get_weight()
+                if weight is not None:
+                    print(f"[무게센서] RAW: {raw_value}, 보정값: {weight:.1f}g", flush=True)
+                
+                # 모터 테스트 (1초마다)
+                if distance is not None and distance < 15:
+                    print("\n모터 테스트 시작...")
+                    motor.forward()
+                    for speed_value in [0.2, 0.4, 0.6, 0.8]:
+                        speed.value = speed_value
+                        print(f"모터 속도: {speed_value*100}%")
+                        sleep(1)
+                    motor.stop()
+                    speed.off()
+                    print("모터 테스트 완료\n")
+                
+                sleep(0.1)  # 100ms 간격으로 읽기
+                
+        except KeyboardInterrupt:
+            print("\n테스트를 종료합니다...")
+        finally:
+            # 하드웨어 정리
+            motor.stop()
+            speed.close()
+            ultrasonic.cleanup()
+            weight_sensor.cleanup()
+            print("하드웨어 정리 완료")
+            
     except Exception as e:
-        print(f"\n시스템 오류: {str(e)}")
-        cleanup_and_exit()
+        print(f"\n초기화 오류: {str(e)}")
+        sys.exit(1)
