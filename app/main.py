@@ -183,6 +183,16 @@ class PetFeeder:
     async def main_loop(self):
         """메인 모니터링 루프"""
         scheduler = RTOSScheduler()
+        print("\n[system] 메인 모니터링 루프 시작")
+        print("[system] 작업 간격:")
+        print("  - 초음파 센서: 100ms")
+        print("  - 무게 센서: 100ms")
+        print("  - 스케줄 확인: 1s")
+        print("  - 에러 로그 확인: 5s")
+        print("  - 카메라 프레임: 500ms (활성화시)\n")
+        
+        loop_count = 0
+        status_interval = 50  # 50회마다 상태 출력
         
         while self.system_running:
             try:
@@ -207,6 +217,17 @@ class PetFeeder:
                 while not self.event_queue.empty():
                     event = self.event_queue.get()
                     await self.process_event(event)
+                
+                # 주기적으로 시스템 상태 출력
+                loop_count += 1
+                if loop_count % status_interval == 0:
+                    print(f"\n[system] 시스템 상태 (루프 {loop_count})")
+                    print(f"  - 카메라 활성화: {'예' if self.camera_active else '아니오'}")
+                    print(f"  - 급여 중: {'예' if self.current_feeding else '아니오'}")
+                    if self.weight_cache:
+                        latest_weight = self.weight_cache[-1][1]
+                        print(f"  - 현재 무게: {latest_weight:.1f}g")
+                    print("  - 시스템 정상 작동 중...")
                 
                 await asyncio.sleep(0.01)  # CPU 부하 방지
                 
