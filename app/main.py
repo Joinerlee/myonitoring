@@ -27,7 +27,7 @@ warnings.filterwarnings('ignore', category=RuntimeWarning)
 
 # GPIO 설정
 import os
-from gpiozero import Device
+from gpiozero import Motor, PWMOutputDevice, Device
 from gpiozero.pins.mock import MockFactory
 
 # GPIO 모의(Mock) 핀 팩토리 설정
