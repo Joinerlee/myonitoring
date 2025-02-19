@@ -245,18 +245,18 @@ class PetFeeder:
         scheduler = RTOSScheduler()
         
         # 시작 메시지 출력
-        sys.stdout.write("\n=== 시스템 시작 ===\n")
+        sys.stdout.write("\n=== 스마트 펫피더 시스템 시작 ===\n")
         sys.stdout.write("작업 간격:\n")
         sys.stdout.write("  - 초음파 센서: 100ms\n")
         sys.stdout.write("  - 무게 센서: 100ms\n")
         sys.stdout.write("  - 스케줄 확인: 1s\n")
         sys.stdout.write("  - 에러 로그 확인: 5s\n")
         sys.stdout.write("  - 카메라 프레임: 500ms (활성화시)\n\n")
-        sys.stdout.write("모니터링 시작...\n\n")
+        sys.stdout.write("=== 실시간 모니터링 시작 ===\n\n")
         sys.stdout.flush()
         
         loop_count = 0
-        status_interval = 3  # 더 자주 상태 출력
+        status_interval = 10  # 10회마다 상태 출력
         
         while self.system_running:
             try:
@@ -267,17 +267,12 @@ class PetFeeder:
                 if task:
                     try:
                         if task == 'ultrasonic':
-                            distance = await self.check_ultrasonic()
-                            if distance is not None:
-                                sys.stdout.write(f"[초음파] 거리: {distance:.1f}cm\n")
-                                sys.stdout.flush()
+                            await self.check_ultrasonic()
                         elif task == 'weight':
-                            weight = await self.monitor_weight()
-                            if weight is not None:
-                                sys.stdout.write(f"[무게] 현재: {weight:.1f}g\n")
-                                sys.stdout.flush()
+                            await self.monitor_weight()
                         elif task == 'schedule':
-                            sys.stdout.write("[스케줄] 급여 시간 확인 중...\n")
+                            current_time_str = datetime.now().strftime("%H:%M:%S")
+                            print(f"\n[스케줄] 급여 시간 확인 중... ({current_time_str})")
                             sys.stdout.flush()
                             await self.check_feeding_schedule()
                         elif task == 'camera' and self.camera_active:
@@ -285,67 +280,85 @@ class PetFeeder:
                         
                         scheduler.update_task_time(task, current_time)
                     except Exception as e:
-                        sys.stdout.write(f"[오류] {task} 작업 실패: {str(e)}\n")
+                        print(f"[오류] {task} 작업 실패: {str(e)}")
                         sys.stdout.flush()
                 
                 # 상태 출력
                 loop_count += 1
                 if loop_count % status_interval == 0:
-                    sys.stdout.write(f"\n=== 시스템 상태 (루프 {loop_count}) ===\n")
+                    current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    print(f"\n=== 시스템 상태 ({current_time_str}) ===")
+                    
+                    # 무게 센서 상태
                     if self.weight_cache:
                         latest_weight = self.weight_cache[-1][1]
-                        sys.stdout.write(f"현재 무게: {latest_weight:.1f}g\n")
-                    sys.stdout.write(f"카메라 상태: {'활성화' if self.camera_active else '비활성화'}\n")
-                    sys.stdout.write(f"급여 상태: {'급여중' if self.current_feeding else '대기중'}\n\n")
+                        raw_value = self.weight_sensor.read()
+                        print(f"무게센서: RAW={raw_value}, 보정값={latest_weight:.1f}g")
+                    
+                    # 초음파 센서 상태
+                    distance = self.ultrasonic.get_distance()
+                    pulse_duration = self.ultrasonic.get_pulse_duration()
+                    print(f"초음파센서: RAW={pulse_duration:.6f}s, 거리={distance:.1f}cm")
+                    
+                    # 시스템 상태
+                    print(f"카메라: {'활성화' if self.camera_active else '비활성화'}")
+                    print(f"급여상태: {'급여중' if self.current_feeding else '대기중'}")
+                    print("================================\n")
                     sys.stdout.flush()
                 
                 # CPU 부하 방지
                 await asyncio.sleep(0.01)
                 
             except Exception as e:
-                sys.stdout.write(f"\n[오류] {str(e)}\n")
+                print(f"\n[오류] {str(e)}")
                 sys.stdout.flush()
                 await asyncio.sleep(1)
 
     async def check_ultrasonic(self):
         """초음파 센서 확인"""
         try:
+            # 로우값 읽기 (펄스 지속 시간)
+            pulse_duration = self.ultrasonic.get_pulse_duration()
             distance = self.ultrasonic.get_distance()
+            
             if distance is not None:
-                print(f"[초음파] 거리: {distance:.1f}cm")
-                sys.stdout.flush()  # 즉시 출력
+                print(f"[초음파] RAW: {pulse_duration:.6f}s, 거리: {distance:.1f}cm")
+                sys.stdout.flush()
                 
                 if distance <= 15:  # 15cm 이내 감지
                     print(f"\n[초음파] 물체 감지! (거리: {distance:.1f}cm)")
-                    sys.stdout.flush()  # 즉시 출력
+                    sys.stdout.flush()
                     if not self.camera_active:
                         print("[카메라] 세션 시작...")
-                        sys.stdout.flush()  # 즉시 출력
+                        sys.stdout.flush()
                         await self.start_camera_session()
             return distance
         except Exception as e:
             print(f"[오류] 초음파 센서: {str(e)}")
-            sys.stdout.flush()  # 즉시 출력
+            sys.stdout.flush()
             return None
 
     async def monitor_weight(self):
         """무게 모니터링"""
         try:
+            # 로우값 읽기
+            raw_value = self.weight_sensor.read()
             current_weight = self.weight_sensor.get_weight()
+            
             if current_weight is not None:
                 with self.weight_lock:
                     self.weight_cache.append((time.time(), current_weight))
-                    print(f"[무게] 현재: {current_weight:.1f}g")
-                    sys.stdout.flush()  # 즉시 출력
+                    print(f"[무게센서] RAW: {raw_value}, 보정값: {current_weight:.1f}g")
+                    sys.stdout.flush()
                     
                     # 사료 잔량 확인
                     if current_weight < self.config['feeding']['min_weight']:
                         print(f"[경고] 사료 잔량 부족 ({current_weight:.1f}g)")
-                        sys.stdout.flush()  # 즉시 출력
+                        sys.stdout.flush()
                 return current_weight
         except Exception as e:
             print(f"[오류] 무게 센서: {str(e)}")
-            sys.stdout.flush()  # 즉시 출력
+            sys.stdout.flush()
             return None
 
     async def start_camera_session(self):

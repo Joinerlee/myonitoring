@@ -83,3 +83,31 @@ class UltrasonicSensor:
             self.trigger.close()
         if hasattr(self, 'echo'):
             self.echo.close()
+
+    def get_pulse_duration(self) -> Optional[float]:
+        """초음파 센서의 펄스 지속 시간 반환"""
+        if not self._is_initialized:
+            return None
+        
+        try:
+            self.trigger.on()
+            time.sleep(0.00001)  # 10μs
+            self.trigger.off()
+            
+            pulse_start = time.time()
+            while not self.echo.value:
+                pulse_start = time.time()
+                if time.time() - pulse_start > 0.1:  # 타임아웃
+                    return None
+            
+            pulse_end = time.time()
+            while self.echo.value:
+                pulse_end = time.time()
+                if time.time() - pulse_start > 0.1:  # 타임아웃
+                    return None
+            
+            return pulse_end - pulse_start
+            
+        except Exception as e:
+            print(f"[ultrasonic] 펄스 측정 실패: {str(e)}")
+            return None
