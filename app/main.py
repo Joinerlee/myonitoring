@@ -89,33 +89,38 @@ def log_error(msg: str):
 
 class HardwareController:
     def __init__(self):
-        # root 권한 체크
-        if os.geteuid() != 0:
-            raise PermissionError("GPIO 접근을 위해 root 권한이 필요합니다.")
+        try:
+            # GPIO 설정
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setwarnings(False)
             
-        # GPIO 설정
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-        
-        # 핀 설정
-        self.MOTOR_FORWARD = 17
-        self.MOTOR_BACKWARD = 18
-        self.MOTOR_SPEED = 12
-        self.ULTRASONIC_TRIGGER = 23
-        self.ULTRASONIC_ECHO = 24
-        self.WEIGHT_DOUT = 14
-        self.WEIGHT_SCK = 15
-        
-        # GPIO 초기화
-        self._init_motor()
-        self._init_ultrasonic()
-        self._init_weight_sensor()
-        
-        # 이미지 저장 경로
-        self.image_dir = Path("data/images")
-        self.image_dir.mkdir(parents=True, exist_ok=True)
-        
-        print("하드웨어 초기화 완료")
+            # 핀 설정
+            self.MOTOR_FORWARD = 17
+            self.MOTOR_BACKWARD = 18
+            self.MOTOR_SPEED = 12
+            self.ULTRASONIC_TRIGGER = 23
+            self.ULTRASONIC_ECHO = 24
+            self.WEIGHT_DOUT = 14
+            self.WEIGHT_SCK = 15
+            
+            # GPIO 초기화
+            self._init_motor()
+            self._init_ultrasonic()
+            self._init_weight_sensor()
+            
+            # 이미지 저장 경로
+            self.image_dir = Path("data/images")
+            self.image_dir.mkdir(parents=True, exist_ok=True)
+            
+            print("하드웨어 초기화 완료")
+            
+        except Exception as e:
+            print(f"하드웨어 초기화 실패: {str(e)}")
+            if "Cannot determine SOC peripheral base address" in str(e):
+                print("\n다음 명령어를 실행해보세요:")
+                print("sudo chmod a+rw /dev/gpiomem")
+                print("sudo systemctl start pigpiod")
+            raise
         
     def _init_motor(self):
         GPIO.setup(self.MOTOR_FORWARD, GPIO.OUT)
