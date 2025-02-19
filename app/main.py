@@ -244,7 +244,6 @@ class PetFeeder:
         """메인 모니터링 루프"""
         scheduler = RTOSScheduler()
         
-        # 시작 메시지 출력
         print("\n=== 스마트 펫피더 시스템 시작 ===")
         print("작업 간격:")
         print("  - 초음파 센서: 100ms")
@@ -264,14 +263,23 @@ class PetFeeder:
                 # 100ms 간격으로 센서값 출력
                 if current_time - last_print_time >= 0.1:
                     # 초음파 센서 읽기
+                    pulse_duration = self.ultrasonic.get_pulse_duration()
                     distance = self.ultrasonic.get_distance()
                     if distance is not None:
-                        print(f"[초음파] 거리: {distance:.1f}cm")
+                        print(f"[초음파] RAW: {pulse_duration:.6f}s, 거리: {distance:.1f}cm", flush=True)
+                        if distance <= 15:  # 15cm 이내 감지
+                            print(f"[초음파] 물체 감지! (거리: {distance:.1f}cm)", flush=True)
+                            if not self.camera_active:
+                                print("[카메라] 세션 시작...", flush=True)
+                                await self.start_camera_session()
                     
                     # 무게 센서 읽기
+                    raw_value = self.weight_sensor.read()
                     weight = self.weight_sensor.get_weight()
                     if weight is not None:
-                        print(f"[무게] 현재: {weight:.1f}g")
+                        print(f"[무게센서] RAW: {raw_value}, 보정값: {weight:.1f}g", flush=True)
+                        if weight < self.config['feeding']['min_weight']:
+                            print(f"[경고] 사료 잔량 부족 ({weight:.1f}g)", flush=True)
                     
                     last_print_time = current_time
                 
@@ -285,32 +293,32 @@ class PetFeeder:
                             await self.monitor_weight()
                         elif task == 'schedule':
                             current_time_str = datetime.now().strftime("%H:%M:%S")
-                            print(f"\n[스케줄] 급여 시간 확인 중... ({current_time_str})")
+                            print(f"\n[스케줄] 급여 시간 확인 중... ({current_time_str})", flush=True)
                             await self.check_feeding_schedule()
                         elif task == 'camera' and self.camera_active:
                             await self.process_camera_frame()
                         
                         scheduler.update_task_time(task, current_time)
                     except Exception as e:
-                        print(f"[오류] {task} 작업 실패: {str(e)}")
+                        print(f"[오류] {task} 작업 실패: {str(e)}", flush=True)
                 
                 # 상태 출력 (1초마다)
                 loop_count += 1
                 if loop_count % 100 == 0:  # 약 1초마다
                     current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    print(f"\n=== 시스템 상태 ({current_time_str}) ===")
-                    print(f"카메라: {'활성화' if self.camera_active else '비활성화'}")
-                    print(f"급여상태: {'급여중' if self.current_feeding else '대기중'}")
+                    print(f"\n=== 시스템 상태 ({current_time_str}) ===", flush=True)
+                    print(f"카메라: {'활성화' if self.camera_active else '비활성화'}", flush=True)
+                    print(f"급여상태: {'급여중' if self.current_feeding else '대기중'}", flush=True)
                     if self.weight_cache:
                         latest_weight = self.weight_cache[-1][1]
-                        print(f"현재 무게: {latest_weight:.1f}g")
-                    print("================================\n")
+                        print(f"현재 무게: {latest_weight:.1f}g", flush=True)
+                    print("================================\n", flush=True)
                 
                 # CPU 부하 방지
                 await asyncio.sleep(0.01)
                 
             except Exception as e:
-                print(f"\n[오류] {str(e)}")
+                print(f"\n[오류] {str(e)}", flush=True)
                 await asyncio.sleep(1)
 
     async def check_ultrasonic(self):
@@ -456,10 +464,15 @@ class PetFeeder:
                 target=lambda: uvicorn.run(
                     self.app,
                     host=self.config['api']['host'],
-                    port=self.config['api']['port']
+                    port=self.config['api']['port'],
+                    log_level="error"  # 로그 레벨을 error로 변경
                 )
             )
+            api_thread.daemon = True  # 데몬 스레드로 설정
             api_thread.start()
+            
+            # 잠시 대기하여 서버 시작 메시지가 먼저 출력되게 함
+            await asyncio.sleep(2)
             
             # 메인 루프 실행
             await self.main_loop()
