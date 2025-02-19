@@ -69,11 +69,54 @@ class PetFeeder:
     def load_config(self) -> dict:
         """설정 파일 로드"""
         try:
-            with open('config/settings.json', 'r') as f:
-                return json.load(f)
+            config_path = Path("config/settings.json")
+            if not config_path.exists():
+                print("[system] 설정 파일이 없습니다. 기본 설정을 사용합니다.")
+                return {
+                    "hardware": {
+                        "ultrasonic": {
+                            "echo_pin": 24,
+                            "trigger_pin": 23,
+                            "max_distance": 1.0,
+                            "threshold_distance": 0.15
+                        },
+                        "weight_sensor": {
+                            "dout_pin": 14,
+                            "sck_pin": 15,
+                            "gain": 128
+                        },
+                        "motor": {
+                            "forward_pin": 23,
+                            "backward_pin": 22,
+                            "default_speed": 0.7
+                        },
+                        "camera": {
+                            "resolution": [3840, 2160],
+                            "format": "jpg",
+                            "rotation": 0,
+                            "session_duration": 180,
+                            "capture_interval": 10
+                        }
+                    },
+                    "api": {
+                        "host": "0.0.0.0",
+                        "port": 8000,
+                        "allowed_origins": ["*"]
+                    },
+                    "feeding": {
+                        "min_weight": 100,
+                        "error_threshold": 10
+                    }
+                }
+            
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+                print("[system] 설정 파일을 로드했습니다")
+                return config
+            
         except Exception as e:
-            logger.error(f"Failed to load config: {e}")
-            return {}
+            print(f"[system] 설정 파일 로드 실패: {str(e)}")
+            raise
 
     def setup_logger(self):
         """로거 설정"""

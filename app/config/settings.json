@@ -1,0 +1,44 @@
+{
+    "hardware": {
+        "ultrasonic": {
+            "echo_pin": 24,
+            "trigger_pin": 23,
+            "max_distance": 1.0,
+            "threshold_distance": 0.15
+        },
+        "weight_sensor": {
+            "dout_pin": 14,
+            "sck_pin": 15,
+            "gain": 128
+        },
+        "motor": {
+            "forward_pin": 23,
+            "backward_pin": 22,
+            "default_speed": 0.7
+        },
+        "camera": {
+            "resolution": [3840, 2160],
+            "format": "jpg",
+            "rotation": 0,
+            "session_duration": 180,
+            "capture_interval": 10
+        }
+    },
+    "api": {
+        "host": "0.0.0.0",
+        "port": 8000,
+        "allowed_origins": ["*"]
+    },
+    "firebase": {
+        "cert_path": "config/firebase-cert.json",
+        "db_url": "https://your-project.firebaseio.com"
+    },
+    "feeding": {
+        "min_weight": 100,
+        "error_threshold": 10
+    },
+    "storage": {
+        "image_dir": "data/images",
+        "log_dir": "logs"
+    }
+} 
