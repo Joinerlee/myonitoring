@@ -16,22 +16,26 @@ class WeightSensor:
                 ):
         self.calibration_file = calibration_file
         try:
+            print("[weight] 무게 센서 초기화 시작...")
+            print(f"[weight] 설정: DOUT={dout_pin}, SCK={sck_pin}, GAIN={gain}")
+            
             self.pd_sck = DigitalOutputDevice(sck_pin)
             self.dout = DigitalInputDevice(dout_pin)
             self.gain = 0
             self.reference_unit = -439.1079999999999
-            self.offset = 0  # 초기값을 0으로 설정
+            self.offset = 0
+            
             self.set_gain(gain)
             self._is_initialized = True
             
-            # 저장된 캘리브레이션 데이터 로드 시도
             if not self.load_calibration():
-                # 캘리브레이션 데이터가 없으면 영점 조정 실행
-                print("캘리브레이션 데이터가 없습니다. 영점 조정을 실행합니다...")
+                print("[weight] 캘리브레이션 데이터가 없습니다. 영점 조정을 실행합니다...")
                 self.tare()
             
+            print("[weight] 초기화 완료")
+            
         except Exception as e:
-            print(f"무게 센서 초기화 실패: {str(e)}")
+            print(f"[weight] 초기화 실패: {str(e)}")
             self._is_initialized = False
 
     def is_ready(self) -> bool:
@@ -96,39 +100,44 @@ class WeightSensor:
         return [x for x in data if abs(x - mean) <= threshold * std]
 
     def tare(self, times: int = 15) -> None:
-        """영점 조정"""
+        print(f"[weight] 영점 조정 시작 (샘플 수: {times})")
         self.offset = self.read_average(times)
+        print("[weight] 영점 조정 완료")
 
     def get_weight(self) -> Optional[float]:
-        """무게 측정 (그램 단위)"""
         if not self._is_initialized:
+            print("[weight] 센서가 초기화되지 않았습니다")
             return None
             
         try:
             value = self.read_average() - self.offset
             weight = abs(value / self.reference_unit)
             
-            # 무게가 비정상적으로 크면 재보정
-            if weight > 1000:  # 1kg 이상이면 의심
-                print("비정상 무게 감지. 영점 조정을 실행합니다...")
+            print(f"[weight] 측정 무게: {weight:.1f}g")
+            
+            if weight > 1000:
+                print("[weight] 비정상 무게 감지. 영점 조정을 실행합니다...")
                 self.tare()
                 value = self.read_average() - self.offset
                 weight = abs(value / self.reference_unit)
+                print(f"[weight] 재측정 무게: {weight:.1f}g")
             
             return weight
+            
         except Exception as e:
-            print(f"무게 측정 실패: {str(e)}")
+            print(f"[weight] 무게 측정 실패: {str(e)}")
             return None
 
     def calibrate(self, known_weight: float, times: int = 15) -> Tuple[bool, float]:
-        """캘리브레이션 수행"""
+        print(f"[weight] 캘리브레이션 시작 (기준 무게: {known_weight}g)")
         try:
             self.tare(times)
             measured_value = self.read_average(times)
             self.reference_unit = abs(measured_value / known_weight)
+            print(f"[weight] 캘리브레이션 완료 (reference_unit: {self.reference_unit})")
             return True, self.reference_unit
         except Exception as e:
-            print(f"캘리브레이션 실패: {str(e)}")
+            print(f"[weight] 캘리브레이션 실패: {str(e)}")
             return False, 0
 
     def save_calibration(self) -> bool:

@@ -21,6 +21,7 @@ from hardware.ultrasonic import UltrasonicSensor
 from hardware.weight_sensor import WeightSensor
 from utils.error_handler import ErrorHandler
 from utils.file_manager import FileManager
+from core.task_scheduler import RTOSScheduler
 
 class PetFeeder:
     def __init__(self):
@@ -125,29 +126,26 @@ class PetFeeder:
 
     async def main_loop(self):
         """메인 모니터링 루프"""
+        scheduler = RTOSScheduler()
+        
         while self.system_running:
             try:
                 current_time = time.time()
+                task = scheduler.get_next_task(current_time)
                 
-                # 초음파 센서 모니터링 (100ms 간격)
-                if current_time - self.last_times['ultrasonic'] >= 0.1:
-                    await self.check_ultrasonic()
-                    self.last_times['ultrasonic'] = current_time
-                
-                # 무게 모니터링 (100ms 간격)
-                if current_time - self.last_times['weight'] >= 0.1:
-                    await self.monitor_weight()
-                    self.last_times['weight'] = current_time
-                
-                # 스케줄 확인 (1초 간격)
-                if current_time - self.last_times['schedule'] >= 1:
-                    await self.check_feeding_schedule()
-                    self.last_times['schedule'] = current_time
-                
-                # 에러 로그 처리 (5초 간격)
-                if current_time - self.last_times['error'] >= 5:
-                    await self.process_error_logs()
-                    self.last_times['error'] = current_time
+                if task:
+                    if task == 'ultrasonic':
+                        await self.check_ultrasonic()
+                    elif task == 'weight':
+                        await self.monitor_weight()
+                    elif task == 'schedule':
+                        await self.check_feeding_schedule()
+                    elif task == 'error':
+                        await self.process_error_logs()
+                    elif task == 'camera' and self.camera_active:
+                        await self.process_camera_frame()
+                    
+                    scheduler.update_task_time(task, current_time)
                 
                 # 이벤트 큐 처리
                 while not self.event_queue.empty():
@@ -199,7 +197,15 @@ class PetFeeder:
         with self.camera_lock:
             if not self.camera_active:
                 self.camera_active = True
-                threading.Thread(target=self.camera_processing).start()
+                self.camera_session_start = time.time()
+                
+                # 별도 스레드에서 카메라 세션 실행
+                threading.Thread(
+                    target=lambda: self.camera.start_capture_session(
+                        duration=180,  # 3분
+                        interval=10    # 10초 간격
+                    )
+                ).start()
 
     def camera_processing(self):
         """카메라 이미지 캡처 및 처리"""
@@ -309,6 +315,33 @@ class PetFeeder:
         await self.file_manager.cleanup()
         
         logger.info("System cleanup completed")
+
+    async def process_camera_frame(self):
+        """카메라 프레임 처리"""
+        if not self.camera_active:
+            return
+        
+        try:
+            result = self.camera.capture()
+            if result['status'] == 'success':
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                image_path = f"data/images/capture_{timestamp}.jpg"
+                
+                # 웹소켓 클라이언트가 연결되어 있다면 프레임 전송
+                if hasattr(self, 'websocket_clients'):
+                    for client in self.websocket_clients:
+                        try:
+                            await client.send_bytes(result['frame'])
+                        except:
+                            continue
+                
+                # 3분 세션이 끝났는지 확인
+                if time.time() - self.camera_session_start > 180:  # 3분
+                    self.camera_active = False
+                    await self.analyze_captured_images()
+                
+        except Exception as e:
+            logger.error(f"Camera frame processing error: {e}")
 
 if __name__ == "__main__":
     import uvicorn
