@@ -34,23 +34,41 @@ os.environ['GPIOZERO_PIN_FACTORY'] = 'mock'
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 locale.setlocale(locale.LC_ALL, 'ko_KR.UTF-8')  # 한국어 로케일 설정
 
-# 로깅 설정
+# 로깅 설정 (파일 상단)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('logs/pet_feeder.log', encoding='utf-8')
+        logging.FileHandler('logs/pet_feeder.log', encoding='utf-8', mode='a')
     ]
 )
-logger = logging.getLogger(__name__)
 
-# 로그 파일 핸들러에 대한 포맷터 설정
-for handler in logger.handlers:
-    handler.setFormatter(logging.Formatter(
-        '%(asctime)s [%(levelname)s] %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    ))
+# 로거 설정
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# 핸들러 포맷 설정
+formatter = logging.Formatter(
+    '%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# 스트림 핸들러 설정
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setFormatter(formatter)
+stream_handler.setLevel(logging.INFO)
+
+# 파일 핸들러 설정
+file_handler = logging.FileHandler('logs/pet_feeder.log', encoding='utf-8', mode='a')
+file_handler.setFormatter(formatter)
+file_handler.setLevel(logging.INFO)
+
+# 기존 핸들러 제거 후 새로운 핸들러 추가
+logger.handlers = []
+logger.addHandler(stream_handler)
+logger.addHandler(file_handler)
 
 class PetFeeder:
     def __init__(self):
@@ -202,15 +220,26 @@ class PetFeeder:
         logger.info("  - 카메라 프레임: 500ms (활성화시)\n")
         
         loop_count = 0
-        status_interval = 50  # 50회마다 상태 출력
+        status_interval = 10  # 10회마다 상태 출력 (더 자주 출력하도록 수정)
         
         logger.info("모니터링 시작...")
         
         while self.system_running:
             try:
                 current_time = time.time()
-                task = scheduler.get_next_task(current_time)
                 
+                # 상태 출력 (더 자주)
+                loop_count += 1
+                if loop_count % status_interval == 0:
+                    logger.info(f"\n=== 시스템 상태 (루프 {loop_count}) ===")
+                    if self.weight_cache:
+                        latest_weight = self.weight_cache[-1][1]
+                        logger.info(f"현재 무게: {latest_weight:.1f}g")
+                    logger.info(f"카메라 상태: {'활성화' if self.camera_active else '비활성화'}")
+                    logger.info(f"급여 상태: {'급여중' if self.current_feeding else '대기중'}")
+                
+                # 작업 실행
+                task = scheduler.get_next_task(current_time)
                 if task:
                     if task == 'ultrasonic':
                         await self.check_ultrasonic()
@@ -225,18 +254,7 @@ class PetFeeder:
                     
                     scheduler.update_task_time(task, current_time)
                 
-                # 주기적으로 시스템 상태 출력
-                loop_count += 1
-                if loop_count % status_interval == 0:
-                    logger.info("\n=== 시스템 상태 ===")
-                    logger.info(f"루프 카운트: {loop_count}")
-                    logger.info(f"카메라 활성화: {'예' if self.camera_active else '아니오'}")
-                    logger.info(f"급여 중: {'예' if self.current_feeding else '아니오'}")
-                    if self.weight_cache:
-                        latest_weight = self.weight_cache[-1][1]
-                        logger.info(f"현재 무게: {latest_weight:.1f}g")
-                    logger.info("시스템 정상 작동 중...\n")
-                
+                # 짧은 대기 시간
                 await asyncio.sleep(0.01)
                 
             except Exception as e:
@@ -249,19 +267,19 @@ class PetFeeder:
             distance = self.ultrasonic.get_distance()
             if distance is not None:
                 if distance <= 15:  # 15cm 이내 감지
-                    print(f"\n[system] 물체 감지! (거리: {distance:.1f}cm)")
+                    logger.info(f"\n물체 감지! (거리: {distance:.1f}cm)")
                     if not self.camera_active:
-                        print("[system] 카메라 세션 시작...")
+                        logger.info("카메라 세션 시작...")
                         await self.start_camera_session()
                 else:
                     # 매번 출력하지 말고 1초에 한 번만 출력
                     current_time = time.time()
                     if current_time - self.last_times.get('distance_print', 0) >= 1:
                         if distance < 50:  # 50cm 이내일 때만 거리 출력
-                            print(f"[ultrasonic] 현재 거리: {distance:.1f}cm")
+                            logger.info(f"[초음파] 현재 거리: {distance:.1f}cm")
                         self.last_times['distance_print'] = current_time
         except Exception as e:
-            print(f"[ultrasonic] 오류 발생: {str(e)}")
+            logger.error(f"초음파 센서 오류: {str(e)}")
 
     async def monitor_weight(self):
         """무게 모니터링"""
@@ -271,7 +289,7 @@ class PetFeeder:
                 current_time = time.time()
                 # 1초에 한 번만 무게 출력
                 if current_time - self.last_times.get('weight_print', 0) >= 1:
-                    print(f"[weight] 현재 무게: {current_weight:.1f}g")
+                    logger.info(f"[무게] 현재 무게: {current_weight:.1f}g")
                     self.last_times['weight_print'] = current_time
                 
                 with self.weight_lock:
@@ -279,10 +297,10 @@ class PetFeeder:
                     
                     # 사료 잔량 확인
                     if current_weight < self.config['feeding']['min_weight']:
-                        print(f"[system] 경고: 사료 잔량 부족 ({current_weight:.1f}g)")
+                        logger.warning(f"사료 잔량 부족 ({current_weight:.1f}g)")
                         
         except Exception as e:
-            print(f"[weight] 오류 발생: {str(e)}")
+            logger.error(f"무게 센서 오류: {str(e)}")
 
     async def start_camera_session(self):
         """카메라 세션 시작"""
@@ -290,7 +308,7 @@ class PetFeeder:
             if not self.camera_active:
                 self.camera_active = True
                 self.camera_session_start = time.time()
-                print("[system] 3분간 촬영을 시작합니다 (10초 간격)")
+                logger.info("3분간 촬영을 시작합니다 (10초 간격)")
                 
                 # 별도 스레드에서 카메라 세션 실행
                 threading.Thread(
@@ -419,7 +437,7 @@ class PetFeeder:
             if result['status'] == 'success':
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 image_path = f"data/images/capture_{timestamp}.jpg"
-                print(f"[camera] 이미지 저장: {image_path}")
+                logger.info(f"[카메라] 이미지 저장: {image_path}")
                 
                 # 웹소켓 클라이언트가 연결되어 있다면 프레임 전송
                 if hasattr(self, 'websocket_clients'):
@@ -432,21 +450,21 @@ class PetFeeder:
                 # 3분 세션이 끝났는지 확인
                 elapsed_time = time.time() - self.camera_session_start
                 if elapsed_time > 180:  # 3분
-                    print("\n[system] 카메라 세션 종료")
-                    print("[system] 촬영된 이미지 분석 시작...")
+                    logger.info("\n카메라 세션 종료")
+                    logger.info("촬영된 이미지 분석 시작...")
                     self.camera_active = False
                     await self.analyze_captured_images()
                 else:
                     remaining = 180 - elapsed_time
-                    print(f"[camera] 남은 시간: {int(remaining)}초")
+                    logger.info(f"[카메라] 남은 시간: {int(remaining)}초")
                 
         except Exception as e:
-            logger.error(f"Camera frame processing error: {e}")
+            logger.error(f"카메라 프레임 처리 오류: {str(e)}")
 
     async def check_feeding_schedule(self):
         """급여 스케줄 확인"""
         try:
-            print("[system] 급여 스케줄 확인 중...")
+            logger.info("[system] 급여 스케줄 확인 중...")
             current_time = datetime.now().strftime("%H:%M")
             
             with open('app/schedule/feeding_schedule.json', 'r') as f:
@@ -455,11 +473,11 @@ class PetFeeder:
             for feeding in schedule['feedings']:
                 if feeding['time'] == current_time:
                     if not self.current_feeding:
-                        print(f"[system] 급여 시간입니다: {current_time}")
+                        logger.info(f"[system] 급여 시간입니다: {current_time}")
                         await self.execute_feeding(feeding['amount'])
                         
         except Exception as e:
-            print(f"[system] 스케줄 확인 실패: {str(e)}")
+            logger.error(f"[system] 스케줄 확인 실패: {str(e)}")
             await self.error_handler.log_error("schedule", str(e))
 
 if __name__ == "__main__":
