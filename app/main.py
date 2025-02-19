@@ -34,41 +34,34 @@ os.environ['GPIOZERO_PIN_FACTORY'] = 'mock'
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 locale.setlocale(locale.LC_ALL, 'ko_KR.UTF-8')  # 한국어 로케일 설정
 
-# 로깅 설정 (파일 상단)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('logs/pet_feeder.log', encoding='utf-8', mode='a')
-    ]
-)
-
-# 로거 설정
-logger = logging.getLogger(__name__)
+# 로거 생성
+logger = logging.getLogger('pet_feeder')
 logger.setLevel(logging.INFO)
 
-# 핸들러 포맷 설정
-formatter = logging.Formatter(
-    '%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-
-# 스트림 핸들러 설정
-stream_handler = logging.StreamHandler(sys.stdout)
-stream_handler.setFormatter(formatter)
-stream_handler.setLevel(logging.INFO)
-
-# 파일 핸들러 설정
-file_handler = logging.FileHandler('logs/pet_feeder.log', encoding='utf-8', mode='a')
-file_handler.setFormatter(formatter)
-file_handler.setLevel(logging.INFO)
-
-# 기존 핸들러 제거 후 새로운 핸들러 추가
+# 기존 핸들러 제거
 logger.handlers = []
+
+# 스트림 핸들러 설정 (실시간 출력용)
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_formatter = logging.Formatter('%(message)s')  # 시간 표시 제거
+stream_handler.setFormatter(stream_formatter)
+stream_handler.setLevel(logging.INFO)
 logger.addHandler(stream_handler)
+
+# 파일 핸들러 설정 (로그 저장용)
+file_handler = logging.FileHandler('logs/pet_feeder.log', encoding='utf-8')
+file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', 
+                                 datefmt='%Y-%m-%d %H:%M:%S')
+file_handler.setFormatter(file_formatter)
+file_handler.setLevel(logging.INFO)
 logger.addHandler(file_handler)
+
+# 다른 로거들의 출력 제한
+logging.getLogger('uvicorn').setLevel(logging.WARNING)
+logging.getLogger('fastapi').setLevel(logging.WARNING)
+
+# 루트 로거 설정 제거
+logging.basicConfig(level=logging.WARNING)
 
 class PetFeeder:
     def __init__(self):
@@ -211,40 +204,44 @@ class PetFeeder:
     async def main_loop(self):
         """메인 모니터링 루프"""
         scheduler = RTOSScheduler()
-        logger.info("\n=== 시스템 시작 ===")
-        logger.info("작업 간격:")
-        logger.info("  - 초음파 센서: 100ms")
-        logger.info("  - 무게 센서: 100ms")
-        logger.info("  - 스케줄 확인: 1s")
-        logger.info("  - 에러 로그 확인: 5s")
-        logger.info("  - 카메라 프레임: 500ms (활성화시)\n")
+        print("\n=== 시스템 시작 ===")
+        print("작업 간격:")
+        print("  - 초음파 센서: 100ms")
+        print("  - 무게 센서: 100ms")
+        print("  - 스케줄 확인: 1s")
+        print("  - 에러 로그 확인: 5s")
+        print("  - 카메라 프레임: 500ms (활성화시)\n")
         
         loop_count = 0
-        status_interval = 10  # 10회마다 상태 출력 (더 자주 출력하도록 수정)
+        status_interval = 10  # 10회마다 상태 출력
         
-        logger.info("모니터링 시작...")
+        print("모니터링 시작...\n")
         
         while self.system_running:
             try:
                 current_time = time.time()
                 
-                # 상태 출력 (더 자주)
+                # 상태 출력
                 loop_count += 1
                 if loop_count % status_interval == 0:
-                    logger.info(f"\n=== 시스템 상태 (루프 {loop_count}) ===")
+                    print(f"\n=== 시스템 상태 (루프 {loop_count}) ===")
                     if self.weight_cache:
                         latest_weight = self.weight_cache[-1][1]
-                        logger.info(f"현재 무게: {latest_weight:.1f}g")
-                    logger.info(f"카메라 상태: {'활성화' if self.camera_active else '비활성화'}")
-                    logger.info(f"급여 상태: {'급여중' if self.current_feeding else '대기중'}")
+                        print(f"현재 무게: {latest_weight:.1f}g")
+                    print(f"카메라 상태: {'활성화' if self.camera_active else '비활성화'}")
+                    print(f"급여 상태: {'급여중' if self.current_feeding else '대기중'}\n")
                 
                 # 작업 실행
                 task = scheduler.get_next_task(current_time)
                 if task:
                     if task == 'ultrasonic':
-                        await self.check_ultrasonic()
+                        distance = await self.check_ultrasonic()
+                        if distance is not None and distance < 50:
+                            print(f"거리: {distance:.1f}cm")
                     elif task == 'weight':
-                        await self.monitor_weight()
+                        weight = await self.monitor_weight()
+                        if weight is not None:
+                            print(f"무게: {weight:.1f}g")
                     elif task == 'schedule':
                         await self.check_feeding_schedule()
                     elif task == 'error':
@@ -254,11 +251,11 @@ class PetFeeder:
                     
                     scheduler.update_task_time(task, current_time)
                 
-                # 짧은 대기 시간
+                # CPU 부하 방지
                 await asyncio.sleep(0.01)
                 
             except Exception as e:
-                logger.error(f"오류 발생: {str(e)}")
+                print(f"\n[오류] {str(e)}")
                 await asyncio.sleep(1)
 
     async def check_ultrasonic(self):
