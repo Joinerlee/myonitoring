@@ -65,7 +65,8 @@ class MotorController:
             
             # 이전 GPIO 설정 초기화
             try:
-                Device.pin_factory.reset()
+                if Device.pin_factory:
+                    Device.pin_factory.reset()
             except:
                 pass
             

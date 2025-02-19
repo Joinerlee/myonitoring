@@ -19,11 +19,18 @@ warnings.filterwarnings('ignore', category=RuntimeWarning)
 
 # GPIO 설정
 import os
-os.environ['GPIOZERO_PIN_FACTORY'] = 'native'  # 네이티브 GPIO 사용
-
-# gpiozero 임포트
 from gpiozero import Device
-Device.pin_factory.reset()  # 기존 GPIO 설정 초기화
+from gpiozero.pins.native import NativeFactory
+
+# GPIO 네이티브 핀 팩토리 설정
+os.environ['GPIOZERO_PIN_FACTORY'] = 'native'
+Device.pin_factory = NativeFactory()
+
+# 기존 GPIO 설정 초기화 (이미 핀 팩토리가 설정된 후에 실행)
+try:
+    Device.pin_factory.reset()
+except:
+    pass
 
 import cv2
 import numpy as np
