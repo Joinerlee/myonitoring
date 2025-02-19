@@ -92,17 +92,26 @@ class HardwareTest:
         
         # 하드웨어 초기화
         try:
-            # 모터 초기화
-            self.motor = Motor(forward=17, backward=18)
-            self.speed = PWMOutputDevice(12)
+            # 모터 초기화 (MotorController 사용)
+            self.motor = MotorController(
+                forward_pin=17, 
+                backward_pin=18,
+                speed_pin=12
+            )
             print("모터 초기화 완료")
             
             # 초음파 센서 초기화
-            self.ultrasonic = UltrasonicSensor(echo_pin=24, trigger_pin=23)
+            self.ultrasonic = UltrasonicSensor(
+                echo_pin=24,
+                trigger_pin=23
+            )
             print("초음파 센서 초기화 완료")
             
             # 무게 센서 초기화
-            self.weight_sensor = WeightSensor(dout_pin=14, sck_pin=15)
+            self.weight_sensor = WeightSensor(
+                dout_pin=14,
+                sck_pin=15
+            )
             print("무게 센서 초기화 완료")
             
             # 카메라 초기화
@@ -134,17 +143,15 @@ class HardwareTest:
                 speed_value = 0.3
             
             print(f"\n모터 구동 (무게: {weight:.1f}g, 속도: {speed_value*100:.0f}%)")
-            self.motor.forward()
-            self.speed.value = speed_value
+            self.motor.start_feeding()
+            self.motor.set_speed(speed_value)
             time.sleep(2)  # 2초간 구동
-            self.motor.stop()
-            self.speed.off()
+            self.motor.stop_feeding()
             print("모터 정지")
             
         except Exception as e:
             print(f"모터 제어 오류: {str(e)}")
-            self.motor.stop()
-            self.speed.off()
+            self.motor.stop_feeding()
     
     def capture_images(self):
         """5장 연속 촬영"""
@@ -167,6 +174,7 @@ class HardwareTest:
         last_motor_time = 0
         
         try:
+            print("\n=== 센서 테스트 시작 ===")
             while self.system_running:
                 current_time = time.time()
                 
@@ -202,8 +210,7 @@ class HardwareTest:
     def cleanup(self):
         """하드웨어 정리"""
         print("\n하드웨어 정리 중...")
-        self.motor.stop()
-        self.speed.close()
+        self.motor.cleanup()
         self.ultrasonic.cleanup()
         self.weight_sensor.cleanup()
         print("정리 완료")
