@@ -243,18 +243,20 @@ class PetFeeder:
     async def main_loop(self):
         """메인 모니터링 루프"""
         scheduler = RTOSScheduler()
-        print("\n=== 시스템 시작 ===")
-        print("작업 간격:")
-        print("  - 초음파 센서: 100ms")
-        print("  - 무게 센서: 100ms")
-        print("  - 스케줄 확인: 1s")
-        print("  - 에러 로그 확인: 5s")
-        print("  - 카메라 프레임: 500ms (활성화시)\n")
+        
+        # 시작 메시지 출력
+        sys.stdout.write("\n=== 시스템 시작 ===\n")
+        sys.stdout.write("작업 간격:\n")
+        sys.stdout.write("  - 초음파 센서: 100ms\n")
+        sys.stdout.write("  - 무게 센서: 100ms\n")
+        sys.stdout.write("  - 스케줄 확인: 1s\n")
+        sys.stdout.write("  - 에러 로그 확인: 5s\n")
+        sys.stdout.write("  - 카메라 프레임: 500ms (활성화시)\n\n")
+        sys.stdout.write("모니터링 시작...\n\n")
+        sys.stdout.flush()
         
         loop_count = 0
-        status_interval = 5  # 5회마다 상태 출력 (더 자주 출력)
-        
-        print("모니터링 시작...\n")
+        status_interval = 3  # 더 자주 상태 출력
         
         while self.system_running:
             try:
@@ -266,37 +268,43 @@ class PetFeeder:
                     try:
                         if task == 'ultrasonic':
                             distance = await self.check_ultrasonic()
-                            if distance is not None and distance < 50:
-                                print(f"[초음파] 거리: {distance:.1f}cm")
+                            if distance is not None:
+                                sys.stdout.write(f"[초음파] 거리: {distance:.1f}cm\n")
+                                sys.stdout.flush()
                         elif task == 'weight':
                             weight = await self.monitor_weight()
                             if weight is not None:
-                                print(f"[무게] 현재: {weight:.1f}g")
+                                sys.stdout.write(f"[무게] 현재: {weight:.1f}g\n")
+                                sys.stdout.flush()
                         elif task == 'schedule':
-                            print("[스케줄] 급여 시간 확인 중...")
+                            sys.stdout.write("[스케줄] 급여 시간 확인 중...\n")
+                            sys.stdout.flush()
                             await self.check_feeding_schedule()
                         elif task == 'camera' and self.camera_active:
                             await self.process_camera_frame()
                         
                         scheduler.update_task_time(task, current_time)
                     except Exception as e:
-                        print(f"[오류] {task} 작업 실패: {str(e)}")
+                        sys.stdout.write(f"[오류] {task} 작업 실패: {str(e)}\n")
+                        sys.stdout.flush()
                 
-                # 상태 출력 (더 자주)
+                # 상태 출력
                 loop_count += 1
                 if loop_count % status_interval == 0:
-                    print(f"\n=== 시스템 상태 (루프 {loop_count}) ===")
+                    sys.stdout.write(f"\n=== 시스템 상태 (루프 {loop_count}) ===\n")
                     if self.weight_cache:
                         latest_weight = self.weight_cache[-1][1]
-                        print(f"현재 무게: {latest_weight:.1f}g")
-                    print(f"카메라 상태: {'활성화' if self.camera_active else '비활성화'}")
-                    print(f"급여 상태: {'급여중' if self.current_feeding else '대기중'}\n")
+                        sys.stdout.write(f"현재 무게: {latest_weight:.1f}g\n")
+                    sys.stdout.write(f"카메라 상태: {'활성화' if self.camera_active else '비활성화'}\n")
+                    sys.stdout.write(f"급여 상태: {'급여중' if self.current_feeding else '대기중'}\n\n")
+                    sys.stdout.flush()
                 
                 # CPU 부하 방지
                 await asyncio.sleep(0.01)
                 
             except Exception as e:
-                print(f"\n[오류] {str(e)}")
+                sys.stdout.write(f"\n[오류] {str(e)}\n")
+                sys.stdout.flush()
                 await asyncio.sleep(1)
 
     async def check_ultrasonic(self):
