@@ -13,6 +13,7 @@ import sys
 import locale
 import io
 import warnings
+import RPi.GPIO as GPIO
 
 # 한글 출력을 위한 설정
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -25,13 +26,12 @@ sys.stdout.flush()
 # GPIO 경고 메시지 무시
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
-# GPIO 설정
+# GPIO Mock 설정
 import os
-from gpiozero import Motor, PWMOutputDevice, Device
+from gpiozero import Device
 from gpiozero.pins.mock import MockFactory
 
 # GPIO 모의(Mock) 핀 팩토리 설정
-os.environ['GPIOZERO_PIN_FACTORY'] = 'mock'
 Device.pin_factory = MockFactory()
 
 # 기존 GPIO 설정 초기화
@@ -86,134 +86,115 @@ def log_error(msg: str):
     print(f"[오류] {msg}")
     logger.error(msg)
 
+# GPIO 설정
+GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)
+
 class HardwareTest:
     def __init__(self):
         print("\n=== 하드웨어 테스트 시작 ===")
         
-        # 하드웨어 초기화
+        # GPIO 핀 번호 설정
+        self.MOTOR_FORWARD = 17
+        self.MOTOR_BACKWARD = 18
+        self.MOTOR_SPEED = 12
+        self.ULTRASONIC_TRIGGER = 23
+        self.ULTRASONIC_ECHO = 24
+        self.WEIGHT_DOUT = 14
+        self.WEIGHT_SCK = 15
+        
+        # GPIO 초기화
         try:
-            # 모터 초기화 (MotorController 사용)
-            self.motor = MotorController(
-                forward_pin=17, 
-                backward_pin=18,
-                speed_pin=12
-            )
-            print("모터 초기화 완료")
+            # 모터 핀 설정
+            GPIO.setup(self.MOTOR_FORWARD, GPIO.OUT)
+            GPIO.setup(self.MOTOR_BACKWARD, GPIO.OUT)
+            GPIO.setup(self.MOTOR_SPEED, GPIO.OUT)
+            self.motor_pwm = GPIO.PWM(self.MOTOR_SPEED, 100)  # 100Hz PWM
+            self.motor_pwm.start(0)
+            print("모터 GPIO 초기화 완료")
             
-            # 초음파 센서 초기화
-            self.ultrasonic = UltrasonicSensor(
-                echo_pin=24,
-                trigger_pin=23
-            )
-            print("초음파 센서 초기화 완료")
+            # 초음파 센서 핀 설정
+            GPIO.setup(self.ULTRASONIC_TRIGGER, GPIO.OUT)
+            GPIO.setup(self.ULTRASONIC_ECHO, GPIO.IN)
+            print("초음파 센서 GPIO 초기화 완료")
             
-            # 무게 센서 초기화
-            self.weight_sensor = WeightSensor(
-                dout_pin=14,
-                sck_pin=15
-            )
-            print("무게 센서 초기화 완료")
+            # 무게 센서 핀 설정
+            GPIO.setup(self.WEIGHT_DOUT, GPIO.IN)
+            GPIO.setup(self.WEIGHT_SCK, GPIO.OUT)
+            print("무게 센서 GPIO 초기화 완료")
             
-            # 카메라 초기화
-            self.camera = CameraIMX219()
-            print("카메라 초기화 완료")
-            
-            # 이미지 저장 경로 생성
-            self.image_dir = Path("data/images")
-            self.image_dir.mkdir(parents=True, exist_ok=True)
-            
-            # RTOS 스케줄러 초기화
-            self.scheduler = RTOSScheduler()
             self.system_running = True
-            
-            print("\n모든 하드웨어 초기화 완료")
+            print("\n모든 GPIO 초기화 완료")
             
         except Exception as e:
-            print(f"초기화 오류: {str(e)}")
+            print(f"GPIO 초기화 오류: {str(e)}")
+            GPIO.cleanup()
             sys.exit(1)
     
-    def run_motor(self, weight):
-        """무게에 따른 모터 제어"""
+    def read_ultrasonic(self):
+        """초음파 센서 거리 측정"""
         try:
-            if weight < 100:  # 100g 미만이면 빠르게
-                speed_value = 0.8
-            elif weight < 200:  # 200g 미만이면 중간 속도
-                speed_value = 0.5
-            else:  # 그 이상이면 천천히
-                speed_value = 0.3
+            GPIO.output(self.ULTRASONIC_TRIGGER, False)
+            time.sleep(0.2)  # 센서 안정화
             
-            print(f"\n모터 구동 (무게: {weight:.1f}g, 속도: {speed_value*100:.0f}%)")
-            self.motor.start_feeding()
-            self.motor.set_speed(speed_value)
-            time.sleep(2)  # 2초간 구동
-            self.motor.stop_feeding()
-            print("모터 정지")
+            # 트리거 신호 전송
+            GPIO.output(self.ULTRASONIC_TRIGGER, True)
+            time.sleep(0.00001)  # 10μs
+            GPIO.output(self.ULTRASONIC_TRIGGER, False)
+            
+            # 에코 신호 대기
+            while GPIO.input(self.ULTRASONIC_ECHO) == 0:
+                pulse_start = time.time()
+            
+            while GPIO.input(self.ULTRASONIC_ECHO) == 1:
+                pulse_end = time.time()
+            
+            pulse_duration = pulse_end - pulse_start
+            distance = pulse_duration * 17150  # cm 변환
+            return round(distance, 1)
             
         except Exception as e:
-            print(f"모터 제어 오류: {str(e)}")
-            self.motor.stop_feeding()
+            print(f"초음파 센서 오류: {str(e)}")
+            return None
     
-    def capture_images(self):
-        """5장 연속 촬영"""
+    def read_weight(self):
+        """무게 센서 읽기 (HX711 프로토콜)"""
         try:
-            print("\n=== 카메라 테스트 시작 ===")
-            for i in range(5):
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                result = self.camera.capture()
-                if result['status'] == 'success':
-                    image_path = self.image_dir / f"test_{timestamp}.jpg"
-                    print(f"이미지 저장: {image_path}")
-                time.sleep(1)  # 1초 간격
-            print("카메라 테스트 완료\n")
+            # 여기에 실제 HX711 읽기 로직 구현
+            # 지금은 테스트를 위해 임의의 값 반환
+            return 150.0
         except Exception as e:
-            print(f"카메라 오류: {str(e)}")
+            print(f"무게 센서 오류: {str(e)}")
+            return None
     
     def main_loop(self):
         """메인 테스트 루프"""
-        image_count = 0
-        last_motor_time = 0
-        last_print_time = 0
+        print("\n=== GPIO 테스트 시작 ===")
+        print("Ctrl+C로 종료할 수 있습니다.\n")
         
         try:
-            print("\n=== 센서 테스트 시작 ===")
             while self.system_running:
-                current_time = time.time()
+                # 초음파 센서 읽기
+                distance = self.read_ultrasonic()
+                if distance is not None:
+                    print(f"[초음파] 거리: {distance}cm")
                 
-                # 0.5초 간격으로 센서값 출력
-                if current_time - last_print_time >= 0.5:  # 500ms 간격
-                    print("\n현재 센서 상태:")
-                    
-                    # 초음파 센서 읽기
-                    distance = self.ultrasonic.get_distance()
-                    pulse_duration = self.ultrasonic.get_pulse_duration()
-                    if distance is not None:
-                        print(f"[초음파] 거리: {distance:.1f}cm (RAW: {pulse_duration:.6f}s)")
-                    
-                    # 무게 센서 읽기
-                    raw_value = self.weight_sensor.read()
-                    weight = self.weight_sensor.get_weight()
-                    if weight is not None:
-                        print(f"[무게] 측정값: {weight:.1f}g (RAW: {raw_value})")
-                    
-                    print("-" * 40)  # 구분선
-                    sys.stdout.flush()
-                    last_print_time = current_time
+                # 무게 센서 읽기
+                weight = self.read_weight()
+                if weight is not None:
+                    print(f"[무게] 측정값: {weight}g")
                 
-                # 물체 감지시 카메라 촬영 (5장만)
-                if (distance is not None and 
-                    distance < 15 and 
-                    image_count < 5 and 
-                    current_time - last_print_time >= 1):  # 최소 1초 간격
-                    self.capture_images()
-                    image_count = 5
+                # 물체가 가까이 있으면 모터 작동
+                if distance is not None and distance < 15:
+                    print("\n물체 감지! 모터 작동...")
+                    GPIO.output(self.MOTOR_FORWARD, GPIO.HIGH)
+                    self.motor_pwm.ChangeDutyCycle(50)  # 50% 속도
+                    time.sleep(1)
+                    GPIO.output(self.MOTOR_FORWARD, GPIO.LOW)
+                    self.motor_pwm.ChangeDutyCycle(0)
+                    print("모터 정지\n")
                 
-                # 무게 변화에 따른 모터 제어 (5초 간격)
-                if (weight is not None and 
-                    current_time - last_motor_time > 5):  # 5초로 늘림
-                    self.run_motor(weight)
-                    last_motor_time = current_time
-                
-                time.sleep(0.1)  # 기본 루프 간격
+                time.sleep(1)
                 
         except KeyboardInterrupt:
             print("\n테스트를 종료합니다...")
@@ -221,11 +202,10 @@ class HardwareTest:
             self.cleanup()
     
     def cleanup(self):
-        """하드웨어 정리"""
-        print("\n하드웨어 정리 중...")
-        self.motor.cleanup()
-        self.ultrasonic.cleanup()
-        self.weight_sensor.cleanup()
+        """GPIO 정리"""
+        print("\nGPIO 정리 중...")
+        self.motor_pwm.stop()
+        GPIO.cleanup()
         print("정리 완료")
 
 if __name__ == "__main__":
