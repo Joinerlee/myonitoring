@@ -235,24 +235,46 @@ class PetFeeder:
     async def main_loop(self):
         """메인 모니터링 루프"""
         scheduler = RTOSScheduler()
-        log_info("\n=== 시스템 시작 ===")
-        log_info("작업 간격:")
-        log_info("  - 초음파 센서: 100ms")
-        log_info("  - 무게 센서: 100ms")
-        log_info("  - 스케줄 확인: 1s")
-        log_info("  - 에러 로그 확인: 5s")
-        log_info("  - 카메라 프레임: 500ms (활성화시)\n")
+        print("\n=== 시스템 시작 ===")
+        print("작업 간격:")
+        print("  - 초음파 센서: 100ms")
+        print("  - 무게 센서: 100ms")
+        print("  - 스케줄 확인: 1s")
+        print("  - 에러 로그 확인: 5s")
+        print("  - 카메라 프레임: 500ms (활성화시)\n")
         
         loop_count = 0
-        status_interval = 10  # 10회마다 상태 출력
+        status_interval = 5  # 5회마다 상태 출력 (더 자주 출력)
         
-        log_info("모니터링 시작...\n")
+        print("모니터링 시작...\n")
         
         while self.system_running:
             try:
                 current_time = time.time()
                 
-                # 상태 출력
+                # 작업 실행
+                task = scheduler.get_next_task(current_time)
+                if task:
+                    try:
+                        if task == 'ultrasonic':
+                            distance = await self.check_ultrasonic()
+                            if distance is not None and distance < 50:
+                                print(f"[초음파] 거리: {distance:.1f}cm")
+                        elif task == 'weight':
+                            weight = await self.monitor_weight()
+                            if weight is not None:
+                                print(f"[무게] 현재: {weight:.1f}g")
+                        elif task == 'schedule':
+                            print("[스케줄] 급여 시간 확인 중...")
+                            await self.check_feeding_schedule()
+                        elif task == 'camera' and self.camera_active:
+                            await self.process_camera_frame()
+                        
+                        scheduler.update_task_time(task, current_time)
+                    except Exception as e:
+                        print(f"[오류] {task} 작업 실패: {str(e)}")
+                
+                # 상태 출력 (더 자주)
                 loop_count += 1
                 if loop_count % status_interval == 0:
                     print(f"\n=== 시스템 상태 (루프 {loop_count}) ===")
@@ -262,26 +284,7 @@ class PetFeeder:
                     print(f"카메라 상태: {'활성화' if self.camera_active else '비활성화'}")
                     print(f"급여 상태: {'급여중' if self.current_feeding else '대기중'}\n")
                 
-                # 작업 실행
-                task = scheduler.get_next_task(current_time)
-                if task:
-                    try:
-                        if task == 'ultrasonic':
-                            await self.check_ultrasonic()
-                        elif task == 'weight':
-                            await self.monitor_weight()
-                        elif task == 'schedule':
-                            await self.check_feeding_schedule()
-                        elif task == 'error':
-                            await self.process_error_logs()
-                        elif task == 'camera' and self.camera_active:
-                            await self.process_camera_frame()
-                        
-                        scheduler.update_task_time(task, current_time)
-                    except Exception as e:
-                        # 개별 작업 오류는 조용히 처리
-                        pass
-                
+                # CPU 부하 방지
                 await asyncio.sleep(0.01)
                 
             except Exception as e:
@@ -294,40 +297,30 @@ class PetFeeder:
             distance = self.ultrasonic.get_distance()
             if distance is not None:
                 if distance <= 15:  # 15cm 이내 감지
-                    log_info(f"\n물체 감지! (거리: {distance:.1f}cm)")
+                    print(f"\n[초음파] 물체 감지! (거리: {distance:.1f}cm)")
                     if not self.camera_active:
-                        log_info("카메라 세션 시작...")
+                        print("[카메라] 세션 시작...")
                         await self.start_camera_session()
-                else:
-                    # 매번 출력하지 말고 1초에 한 번만 출력
-                    current_time = time.time()
-                    if current_time - self.last_times.get('distance_print', 0) >= 1:
-                        if distance < 50:  # 50cm 이내일 때만 거리 출력
-                            log_info(f"[초음파] 현재 거리: {distance:.1f}cm")
-                        self.last_times['distance_print'] = current_time
+            return distance
         except Exception as e:
-            log_error(f"초음파 센서 오류: {str(e)}")
+            print(f"[오류] 초음파 센서: {str(e)}")
+            return None
 
     async def monitor_weight(self):
         """무게 모니터링"""
         try:
             current_weight = self.weight_sensor.get_weight()
             if current_weight is not None:
-                current_time = time.time()
-                # 1초에 한 번만 무게 출력
-                if current_time - self.last_times.get('weight_print', 0) >= 1:
-                    log_info(f"[무게] 현재 무게: {current_weight:.1f}g")
-                    self.last_times['weight_print'] = current_time
-                
                 with self.weight_lock:
-                    self.weight_cache.append((current_time, current_weight))
+                    self.weight_cache.append((time.time(), current_weight))
                     
                     # 사료 잔량 확인
                     if current_weight < self.config['feeding']['min_weight']:
-                        log_info(f"사료 잔량 부족 ({current_weight:.1f}g)")
-                        
+                        print(f"[경고] 사료 잔량 부족 ({current_weight:.1f}g)")
+                return current_weight
         except Exception as e:
-            log_error(f"무게 센서 오류: {str(e)}")
+            print(f"[오류] 무게 센서: {str(e)}")
+            return None
 
     async def start_camera_session(self):
         """카메라 세션 시작"""
