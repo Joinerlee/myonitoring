@@ -240,9 +240,15 @@ class PetFeeder:
         """초음파 센서 확인"""
         try:
             distance = self.ultrasonic.get_distance()
-            if distance is not None and distance <= 15:  # 15cm 이내 감지
-                if not self.camera_active:
-                    await self.start_camera_session()
+            if distance is not None:
+                if distance <= 15:  # 15cm 이내 감지
+                    print(f"\n[system] 물체 감지! (거리: {distance:.1f}cm)")
+                    if not self.camera_active:
+                        print("[system] 카메라 세션 시작...")
+                        await self.start_camera_session()
+                else:
+                    if distance < 50:  # 50cm 이내일 때만 거리 출력
+                        print(f"[ultrasonic] 거리: {distance:.1f}cm")
         except Exception as e:
             logger.error(f"Ultrasonic sensor error: {e}")
             await self.error_handler.log_error("ultrasonic", str(e))
@@ -275,6 +281,7 @@ class PetFeeder:
             if not self.camera_active:
                 self.camera_active = True
                 self.camera_session_start = time.time()
+                print("[system] 3분간 촬영을 시작합니다 (10초 간격)")
                 
                 # 별도 스레드에서 카메라 세션 실행
                 threading.Thread(
@@ -403,6 +410,7 @@ class PetFeeder:
             if result['status'] == 'success':
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 image_path = f"data/images/capture_{timestamp}.jpg"
+                print(f"[camera] 이미지 저장: {image_path}")
                 
                 # 웹소켓 클라이언트가 연결되어 있다면 프레임 전송
                 if hasattr(self, 'websocket_clients'):
@@ -413,9 +421,15 @@ class PetFeeder:
                             continue
                 
                 # 3분 세션이 끝났는지 확인
-                if time.time() - self.camera_session_start > 180:  # 3분
+                elapsed_time = time.time() - self.camera_session_start
+                if elapsed_time > 180:  # 3분
+                    print("\n[system] 카메라 세션 종료")
+                    print("[system] 촬영된 이미지 분석 시작...")
                     self.camera_active = False
                     await self.analyze_captured_images()
+                else:
+                    remaining = 180 - elapsed_time
+                    print(f"[camera] 남은 시간: {int(remaining)}초")
                 
         except Exception as e:
             logger.error(f"Camera frame processing error: {e}")
