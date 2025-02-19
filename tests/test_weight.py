@@ -1,13 +1,8 @@
 import time
-import os
-import sys
-from tests import GPIO, setup_gpio, print_test_result, is_raspberry_pi_5
+from utils import GPIO, setup_gpio, print_test_result
 
 class WeightSensorTest:
     def __init__(self):
-        if not is_raspberry_pi_5():
-            raise Exception("이 테스트는 라즈베리파이 5에서만 실행 가능합니다.")
-            
         setup_gpio()
         self.DOUT = 14
         self.SCK = 15
