@@ -52,34 +52,26 @@ class PIDController:
         return max(0, min(speed_limit, output))
 
 class MotorController:
-    """DC 모터 제어 클래스 (L298N 모터 드라이버 사용)"""
-    
     def __init__(self,
-                 forward_pin: int = 23,  # GPIO23
-                 backward_pin: int = 22,  # GPIO22
-                 speed_pin: int = 12,
+                 forward_pin: int = 17,  # GPIO17
+                 backward_pin: int = 18,  # GPIO18
+                 speed_pin: int = 12,     # GPIO12
                  default_speed: float = 0.7
                  ):
-        """
-        Args:
-            forward_pin (int): 정방향 회전 제어 핀
-            backward_pin (int): 역방향 회전 제어 핀
-            speed_pin (int): PWM 제어 핀
-            default_speed (float): 기본 모터 속도 (0~1 사이값)
-        """
         try:
             print("[motor] 모터 컨트롤러 초기화 시작...")
             print(f"[motor] 설정: forward={forward_pin}, backward={backward_pin}, speed={speed_pin}")
             print(f"[motor] 기본 속도: {default_speed}")
             
-            # 이미 사용 중인 핀 정리
+            # 이전 GPIO 설정 초기화
             try:
                 Device.pin_factory.reset()
             except:
                 pass
             
+            # 모터 및 속도 제어 초기화
             self.motor = Motor(forward=forward_pin, backward=backward_pin)
-            self.speed_control = PWMOutputDevice(speed_pin)
+            self.speed = PWMOutputDevice(speed_pin)
             self.default_speed = default_speed
             self._is_running = False
             self._is_initialized = True
@@ -98,9 +90,8 @@ class MotorController:
         except Exception as e:
             print(f"[motor] 초기화 실패: {str(e)}")
             self._is_initialized = False
-    
+
     def start_feeding(self, target_weight: float = None) -> bool:
-        """모터 정방향 회전 시작[1]"""
         if not self._is_initialized:
             print("[motor] 모터가 초기화되지 않았습니다")
             return False
@@ -110,16 +101,15 @@ class MotorController:
             self.motor.forward()
             self._is_running = True
             
-            # 초기 속도 설정
-            self.speed_control.value = self.default_speed * 0.4  # 시작은 40% 속도로
+            # 초기 속도 설정 (40%로 시작)
+            self.speed.value = self.default_speed * 0.4
             return True
             
         except Exception as e:
             print(f"[motor] 모터 구동 실패: {str(e)}")
             return False
-    
+
     def stop_feeding(self) -> bool:
-        """모터 정지[2]"""
         if not self._is_initialized:
             print("[motor] 모터가 초기화되지 않았습니다")
             return False
@@ -127,14 +117,14 @@ class MotorController:
         try:
             print("[motor] 급여 정지")
             self.motor.stop()
+            self.speed.off()
             self._is_running = False
             return True
         except Exception as e:
             print(f"[motor] 모터 정지 실패: {str(e)}")
             return False
-    
+
     def adjust_speed(self, current_weight: float, target_weight: float) -> None:
-        """PID 제어를 통한 모터 속도 조절"""
         if not self._is_running:
             return
             
@@ -144,16 +134,16 @@ class MotorController:
                 self.stop_feeding()
                 return
                 
-            self.speed_control.value = control_value
+            self.speed.value = control_value
             print(f"[motor] 현재 무게: {current_weight:.1f}g, 속도: {control_value*100:.1f}%")
             
         except Exception as e:
             print(f"[motor] 속도 조절 실패: {str(e)}")
-    
+
     def cleanup(self):
-        """모터 리소스 정리"""
         print("[motor] 리소스 정리")
         if self._is_initialized:
             self.stop_feeding()
+            self.speed.close()
             self._is_initialized = False
                                     

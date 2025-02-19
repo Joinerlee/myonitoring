@@ -18,19 +18,12 @@ import warnings
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
 # GPIO 설정
-try:
-    import pigpio
-    os.environ['GPIOZERO_PIN_FACTORY'] = 'pigpio'
-except ImportError:
-    print("[system] pigpio를 찾을 수 없습니다. 에뮬레이션 모드로 실행합니다.")
-    os.environ['GPIOZERO_PIN_FACTORY'] = 'mock'
-os.environ['PIGPIO_ADDR'] = 'soft'  # pigpio 에뮬레이션 모드
+import os
+os.environ['GPIOZERO_PIN_FACTORY'] = 'native'  # 네이티브 GPIO 사용
 
-# gpiozero 임포트 (GPIO 설정 후에 임포트)
+# gpiozero 임포트
 from gpiozero import Device
-from gpiozero.pins.mock import MockFactory
-if os.environ['GPIOZERO_PIN_FACTORY'] == 'mock':
-    Device.pin_factory = MockFactory()
+Device.pin_factory.reset()  # 기존 GPIO 설정 초기화
 
 import cv2
 import numpy as np
