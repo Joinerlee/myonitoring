@@ -561,6 +561,43 @@ class PetFeeder:
 
 if __name__ == "__main__":
     import uvicorn
+    import signal
     
     pet_feeder = PetFeeder()
-    asyncio.run(pet_feeder.run())
+    
+    # 시그널 핸들러 설정
+    def signal_handler(signum, frame):
+        print("\n시스템을 종료합니다...")
+        pet_feeder.system_running = False
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        # API 서버 시작 (별도 스레드)
+        api_thread = threading.Thread(
+            target=lambda: uvicorn.run(
+                pet_feeder.app,
+                host=pet_feeder.config['api']['host'],
+                port=pet_feeder.config['api']['port'],
+                log_level="error"
+            )
+        )
+        api_thread.daemon = True
+        api_thread.start()
+        
+        # 메인 이벤트 루프 실행
+        loop = asyncio.get_event_loop()
+        try:
+            loop.run_until_complete(pet_feeder.main_loop())
+        except KeyboardInterrupt:
+            pass
+        finally:
+            loop.run_until_complete(pet_feeder.cleanup())
+            loop.close()
+            
+    except Exception as e:
+        print(f"시스템 오류: {e}")
+    finally:
+        # 종료 처리
+        pet_feeder.system_running = False
