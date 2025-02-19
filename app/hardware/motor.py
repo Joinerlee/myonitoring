@@ -1,6 +1,6 @@
 # app/hardware/motor.py
 
-from gpiozero import Motor
+from gpiozero import Motor, Device
 from time import sleep
 from typing import Optional
 
@@ -22,6 +22,12 @@ class MotorController:
             print("[motor] 모터 컨트롤러 초기화 시작...")
             print(f"[motor] 설정: forward={forward_pin}, backward={backward_pin}")
             print(f"[motor] 기본 속도: {default_speed}")
+            
+            # 이미 사용 중인 핀 정리
+            try:
+                Device.pin_factory.reset()
+            except:
+                pass
             
             self.motor = Motor(forward=forward_pin, backward=backward_pin)
             self.default_speed = default_speed
