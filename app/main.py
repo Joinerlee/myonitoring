@@ -39,10 +39,18 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
-        logging.StreamHandler(sys.stdout)
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('logs/pet_feeder.log', encoding='utf-8')
     ]
 )
 logger = logging.getLogger(__name__)
+
+# 로그 파일 핸들러에 대한 포맷터 설정
+for handler in logger.handlers:
+    handler.setFormatter(logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
 
 class PetFeeder:
     def __init__(self):
@@ -52,9 +60,6 @@ class PetFeeder:
         
         # 시스템 설정 로드
         self.config = self.load_config()
-        
-        # 로거 설정
-        self.setup_logger()
         
         # 파일 관리자 초기화
         self.file_manager = FileManager()
@@ -144,15 +149,6 @@ class PetFeeder:
         except Exception as e:
             print(f"[system] 설정 파일 로드 실패: {str(e)}")
             raise
-
-    def setup_logger(self):
-        """로거 설정"""
-        logger.add(
-            "logs/pet_feeder_{time}.log",
-            rotation="1 day",
-            retention="7 days",
-            level="INFO"
-        )
 
     def init_hardware(self):
         """하드웨어 컴포넌트 초기화"""
