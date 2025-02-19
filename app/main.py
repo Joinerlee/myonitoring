@@ -30,6 +30,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# GPIO 모드 설정
+if os.environ.get('TESTING', 'false').lower() == 'true':
+    # 테스트 환경: GPIO Mock 사용
+    os.environ['MOCK_GPIO'] = 'true'
+    os.environ['GPIOZERO_PIN_FACTORY'] = 'mock'
+    ROOT_CHECK_DISABLED = True
+else:
+    # 운영 환경: 실제 GPIO 사용
+    os.environ['MOCK_GPIO'] = 'false'
+    ROOT_CHECK_DISABLED = False
+
 class PetFeeder:
     def __init__(self):
         """시스템 초기화"""
@@ -179,8 +190,10 @@ class PetFeeder:
 def main():
     """메인 함수"""
     try:
-        if os.geteuid() != 0:
+        # root 권한 체크 (테스트 환경에서는 스킵)
+        if not ROOT_CHECK_DISABLED and os.geteuid() != 0:
             logger.error("이 프로그램은 root 권한으로 실행해야 합니다.")
+            logger.error("테스트 시에는 'TESTING=true python app/main.py'로 실행하세요.")
             sys.exit(1)
             
         pet_feeder = PetFeeder()

@@ -3,7 +3,7 @@ import logging
 import os
 
 # GPIO 선택적 임포트
-if os.environ.get('MOCK_GPIO', 'true').lower() == 'true':
+if os.environ.get('MOCK_GPIO', 'false').lower() == 'true':
     from .gpio_mock import GPIOMock as GPIO
 else:
     import RPi.GPIO as GPIO
