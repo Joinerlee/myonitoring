@@ -245,22 +245,35 @@ class PetFeeder:
         scheduler = RTOSScheduler()
         
         # 시작 메시지 출력
-        sys.stdout.write("\n=== 스마트 펫피더 시스템 시작 ===\n")
-        sys.stdout.write("작업 간격:\n")
-        sys.stdout.write("  - 초음파 센서: 100ms\n")
-        sys.stdout.write("  - 무게 센서: 100ms\n")
-        sys.stdout.write("  - 스케줄 확인: 1s\n")
-        sys.stdout.write("  - 에러 로그 확인: 5s\n")
-        sys.stdout.write("  - 카메라 프레임: 500ms (활성화시)\n\n")
-        sys.stdout.write("=== 실시간 모니터링 시작 ===\n\n")
-        sys.stdout.flush()
+        print("\n=== 스마트 펫피더 시스템 시작 ===")
+        print("작업 간격:")
+        print("  - 초음파 센서: 100ms")
+        print("  - 무게 센서: 100ms")
+        print("  - 스케줄 확인: 1s")
+        print("  - 에러 로그 확인: 5s")
+        print("  - 카메라 프레임: 500ms (활성화시)\n")
+        print("=== 실시간 모니터링 시작 ===\n")
         
         loop_count = 0
-        status_interval = 10  # 10회마다 상태 출력
+        last_print_time = 0
         
         while self.system_running:
             try:
                 current_time = time.time()
+                
+                # 100ms 간격으로 센서값 출력
+                if current_time - last_print_time >= 0.1:
+                    # 초음파 센서 읽기
+                    distance = self.ultrasonic.get_distance()
+                    if distance is not None:
+                        print(f"[초음파] 거리: {distance:.1f}cm")
+                    
+                    # 무게 센서 읽기
+                    weight = self.weight_sensor.get_weight()
+                    if weight is not None:
+                        print(f"[무게] 현재: {weight:.1f}g")
+                    
+                    last_print_time = current_time
                 
                 # 작업 실행
                 task = scheduler.get_next_task(current_time)
@@ -273,7 +286,6 @@ class PetFeeder:
                         elif task == 'schedule':
                             current_time_str = datetime.now().strftime("%H:%M:%S")
                             print(f"\n[스케줄] 급여 시간 확인 중... ({current_time_str})")
-                            sys.stdout.flush()
                             await self.check_feeding_schedule()
                         elif task == 'camera' and self.camera_active:
                             await self.process_camera_frame()
@@ -281,37 +293,24 @@ class PetFeeder:
                         scheduler.update_task_time(task, current_time)
                     except Exception as e:
                         print(f"[오류] {task} 작업 실패: {str(e)}")
-                        sys.stdout.flush()
                 
-                # 상태 출력
+                # 상태 출력 (1초마다)
                 loop_count += 1
-                if loop_count % status_interval == 0:
+                if loop_count % 100 == 0:  # 약 1초마다
                     current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     print(f"\n=== 시스템 상태 ({current_time_str}) ===")
-                    
-                    # 무게 센서 상태
-                    if self.weight_cache:
-                        latest_weight = self.weight_cache[-1][1]
-                        raw_value = self.weight_sensor.read()
-                        print(f"무게센서: RAW={raw_value}, 보정값={latest_weight:.1f}g")
-                    
-                    # 초음파 센서 상태
-                    distance = self.ultrasonic.get_distance()
-                    pulse_duration = self.ultrasonic.get_pulse_duration()
-                    print(f"초음파센서: RAW={pulse_duration:.6f}s, 거리={distance:.1f}cm")
-                    
-                    # 시스템 상태
                     print(f"카메라: {'활성화' if self.camera_active else '비활성화'}")
                     print(f"급여상태: {'급여중' if self.current_feeding else '대기중'}")
+                    if self.weight_cache:
+                        latest_weight = self.weight_cache[-1][1]
+                        print(f"현재 무게: {latest_weight:.1f}g")
                     print("================================\n")
-                    sys.stdout.flush()
                 
                 # CPU 부하 방지
                 await asyncio.sleep(0.01)
                 
             except Exception as e:
                 print(f"\n[오류] {str(e)}")
-                sys.stdout.flush()
                 await asyncio.sleep(1)
 
     async def check_ultrasonic(self):
