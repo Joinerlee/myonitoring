@@ -1,5 +1,11 @@
 import RPi.GPIO as GPIO
 import time
+import os
+import sys
+
+# 상위 디렉토리를 Python 경로에 추가
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from tests import setup_gpio, print_test_result, is_raspberry_pi_5
 
 class MotorTest:
