@@ -59,13 +59,21 @@ from core.task_scheduler import RTOSScheduler
 for handler in logging.root.handlers[:]:
     logging.root.removeHandler(handler)
 
+# 프로젝트 루트 디렉토리 설정
+PROJECT_ROOT = Path(__file__).parent.parent
+APP_DIR = PROJECT_ROOT / 'app'
+
+# 필요한 디렉토리 생성
+LOGS_DIR = PROJECT_ROOT / 'app' / 'logs'
+DATA_DIR = PROJECT_ROOT / 'app' / 'data'
+IMAGES_DIR = DATA_DIR / 'images'
+
+for directory in [LOGS_DIR, DATA_DIR, IMAGES_DIR]:
+    directory.mkdir(parents=True, exist_ok=True)
+
 # uvicorn과 fastapi 로거 레벨 설정
 logging.getLogger("uvicorn").setLevel(logging.WARNING)
 logging.getLogger("fastapi").setLevel(logging.WARNING)
-
-# 로그 디렉토리 생성
-log_dir = Path('logs')
-log_dir.mkdir(exist_ok=True)
 
 # 기본 로거 설정
 logger = logging.getLogger('pet_feeder')
@@ -73,7 +81,7 @@ logger.setLevel(logging.INFO)
 logger.handlers = []  # 기존 핸들러 제거
 
 # 파일 핸들러 설정
-log_file = log_dir / 'pet_feeder.log'
+log_file = LOGS_DIR / 'pet_feeder.log'
 file_handler = logging.FileHandler(log_file, encoding='utf-8')
 file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', 
                                  datefmt='%Y-%m-%d %H:%M:%S')
@@ -113,9 +121,8 @@ class HardwareController:
             self._init_ultrasonic()
             self._init_weight_sensor()
             
-            # 이미지 저장 경로
-            self.image_dir = Path("data/images")
-            self.image_dir.mkdir(parents=True, exist_ok=True)
+            # 이미지 저장 경로 수정
+            self.image_dir = IMAGES_DIR
             
             print("하드웨어 초기화 완료")
             
